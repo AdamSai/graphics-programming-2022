@@ -111,6 +111,7 @@ int main()
             glBindVertexArray( scnObj.VAO );
             activeShader->setVec3( "uColor", scnObj.r, scnObj.g, scnObj.b );
             activeShader->setVec2( "uPosition", scnObj.x, scnObj.y );
+            activeShader->setVec2( "coneColor", scnObj.x, scnObj.y );
             glDrawElements( GL_TRIANGLES, scnObj.vertexCount, GL_UNSIGNED_INT, 0 );
 
         }
@@ -250,6 +251,17 @@ void key_input_callback( GLFWwindow *window, int button, int other, int action, 
     // Key 1 sets the activeShader to &shaderPrograms[0];
     //   and so on.
     // CODE HERE
+    if ( action == GLFW_PRESS )
+    {
+
+        if ( button == GLFW_KEY_1 )
+            activeShader = &shaderPrograms[0];
+        if ( button == GLFW_KEY_2 )
+            activeShader = &shaderPrograms[1];
+        if ( button == GLFW_KEY_3 )
+            activeShader = &shaderPrograms[2];
+
+    }
 }
 
 
