@@ -70,9 +70,9 @@ Shader "CG2022/CelShading"
 					vec3 lighting = BlinnPhongLighting(lightDir, viewDir, normal, vec3(1.0f), vec3(1.0f), _Reflectance.x, _Reflectance.y, _Reflectance.z, _SpecularExponent);
 
 					float intensity = GetColorLuminance(lighting);
-					float discretize = ceil(intensity * _Levels) / _Levels;
+					intensity = ceil(intensity * _Levels) / _Levels;
 
-					gl_FragColor = vec4(discretize * albedo * _LightColor0.rgb, 1.0f);
+					gl_FragColor = vec4(intensity * albedo * _LightColor0.rgb, 1.0f);
 				}
 				#endif // FRAGMENT
 
@@ -124,9 +124,9 @@ Shader "CG2022/CelShading"
 					vec3 lighting = BlinnPhongLighting(lightDir, viewDir, normal, vec3(1.0f), vec3(1.0f), _Reflectance.x, _Reflectance.y, _Reflectance.z, _SpecularExponent);
 
 					float intensity = GetColorLuminance(lighting);
-					float discretize = ceil(intensity * _Levels) / _Levels;
+					intensity = ceil(intensity * _Levels) / _Levels;
 
-					gl_FragColor = vec4(discretize * albedo * _LightColor0.rgb, 1.0f);
+					gl_FragColor = vec4(intensity * albedo * _LightColor0.rgb, 1.0f);
 				}
 				#endif // FRAGMENT
 
