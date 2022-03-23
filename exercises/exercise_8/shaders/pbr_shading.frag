@@ -45,7 +45,7 @@ const float PI = 3.14159265359;
 vec3 FresnelSchlick(vec3 F0, float cosTheta)
 {
     // TODO 8.4 : Implement the formula here
-    vec3 fresnel = (diffuseReflectance * (1 - F0) + specularReflectance * F0) * cosTheta;
+    vec3 fresnel = F0 + (1 - F0) * pow(1 - cosTheta, 5);
     return fresnel;
 }
 
@@ -53,7 +53,9 @@ float DistributionGGX(vec3 N, vec3 H, float a)
 {
     // TODO 8.5 : Implement the formula here
 
-    return 1.0f;
+    //    pow(N * H, 2)
+    //    (pow(a, 2) - 1) + 1
+    return pow(a, 2) / (PI * pow(pow(dot(N, H), 2) * (pow(a, 2) - 1) + 1, 2));
 }
 
 float GeometrySchlickGGX(float cosAngle, float a)
@@ -150,10 +152,10 @@ vec3 GetEnvironmentLighting(vec3 N, vec3 V)
 
 vec3 GetLambertianDiffuseLighting(vec3 N, vec3 L, vec3 albedo)
 {
-    vec3 diffuse = diffuseReflectance * albedo;
+    //    vec3 diffuse = diffuseReflectance * albedo;
 
     // TODO 8.3 : Scale the diffuse light, considering that it gets reflected equally in all directions
-    diffuse /= PI;
+    vec3 diffuse = albedo / PI;
 
     return diffuse;
 }
@@ -217,7 +219,7 @@ void main()
     vec3 diffuse = GetLambertianDiffuseLighting(N, L, albedo);
 
     // TODO 8.5 : Replace the Blinn-Phong with a call to the GetCookTorranceSpecularLighting function
-    vec3 specular = GetBlinnPhongSpecularLighting(N, L, V);
+    vec3 specular = GetCookTorranceSpecularLighting(N, L, V);
 
     // This time we get the lightColor outside the diffuse and specular terms (we are multiplying later)
     vec3 lightRadiance = lightColor;
@@ -243,18 +245,20 @@ void main()
 
 
     // TODO 8.4 : Compute the Fresnel term for indirect light, using the clamped cosine of the angle formed by the NORMAL vector and the view vector
-    //    float cosAngle = dot(N, V);
-    //    vec3 fresnel = FresnelSchlick(F0, cosAngle);
+    float cosAngle = max(dot(N, V), 0);
+    vec3 fresnelIndirect = FresnelSchlick(F0, cosAngle);
 
     // TODO 8.4 : Mix ambient and environment using the fresnel you just computed as blend factor
-    vec3 indirectLight = ambient;
+    vec3 indirectLight = mix(ambient, environment, fresnelIndirect);
 
     // TODO 8.4 : Compute the Fresnel term for the light, using the clamped cosine of the angle formed by the HALF vector and the view vector
-
+    vec3 H = normalize(L + V);
+    float cosAngleHalf = max(dot(H, V), 0);
+    vec3 fresnelLight = FresnelSchlick(F0, cosAngleHalf);
 
     // TODO 8.4 : Use the fresnel you just computed as blend factor, instead of roughness. Pay attention to the order of the parameters in mix
     // TODO 8.3 : Instead of adding them, mix the specular and diffuse lighting using, for now, the roughness.
-    vec3 directLight = mix(diffuse, specular, roughness);
+    vec3 directLight = mix(diffuse, specular, fresnelLight);
     directLight *= lightRadiance;
 
     // lighting = indirect lighting (ambient + environment) + direct lighting (diffuse + specular)
