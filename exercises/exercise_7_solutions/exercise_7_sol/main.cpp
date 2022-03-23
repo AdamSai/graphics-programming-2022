@@ -91,8 +91,32 @@ struct Config
         lights.emplace_back(glm::vec3({ 1.8f, .7f, 2.2f }), glm::vec3({ 0.5f, 0.0f, 1.0f }), 1.0f, 3.0f);
 
         // TODO 7.2 : Add a third light
+        lights.emplace_back(glm::vec3({ 0.0f, 2.0f, -2.0f }), glm::vec3({ 0.25f, 1.0f, 0.25f }), 1.0f, 5.0f);
 
+        // Extra lights
+        /*
+        srand(13);
+        float maxDist = 10.f, maxHeight = 1.0f;
+        for (unsigned int i = 0; i < 1000; i++)
+        {
+            bool valid = false;
+            glm::vec3 pos, col;
+            while (!valid) { // so the lights are in a circular arrangement (instead of squared)
+                pos.x = ((rand() % 100) / 100.f) * maxDist * 2 - maxDist;
+                pos.z = ((rand() % 100) / 100.f) * maxDist * 2 - maxDist;
+                pos.y = ((rand() % 100) / 100.f) * maxHeight;
+                if (glm::dot(pos, pos) < maxDist * maxDist + maxHeight * maxHeight)
+                    valid = true;
+            }
 
+            // also calculate random color
+            col.r = ((rand() % 100) / 200.f) + 0.5f; // between 0.5 and 1.0
+            col.g = ((rand() % 100) / 200.f) + 0.5f; // between 0.5 and 1.0
+            col.b = ((rand() % 100) / 200.f) + 0.5f; // between 0.5 and 1.0
+
+            lights.emplace_back(pos, col, 0.25f, 1.0f);
+        }
+        //*/
     }
 
     // ambient light
@@ -301,6 +325,7 @@ int main()
                     drawCube();
                 }
 
+
                 // Restore values
                 glDisable(GL_BLEND);
                 glBlendFunc(GL_ONE, GL_ZERO);
@@ -395,11 +420,12 @@ void drawGui(){
         ImGui::Separator();
 
         // TODO 7.2 : Add the UI controllers for the third light
-
-
-
-
-
+        ImGui::Text("Light 3: ");
+        ImGui::DragFloat3("light 3 position", (float*)&config.lights[2].position, .1f, -20, 20);
+        ImGui::ColorEdit3("light 3 color", (float*)&config.lights[2].color);
+        ImGui::SliderFloat("light 3 intensity", &config.lights[2].intensity, 0.0f, 2.0f);
+        ImGui::SliderFloat("light 3 radius", &config.lights[2].radius, 0.01f, 50.0f);
+        ImGui::Separator();
 
 
         ImGui::Text("Material: ");
@@ -710,12 +736,8 @@ void drawObjects()
     shader->setFloat("specularExponent", 20.0f);
     model = glm::mat4(1.0f); 
     shader->setMat4("model", model);
-    //glEnable(GL_BLEND);
-    //glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-    //glDepthMask(false);
+
     carWindowsModel->Draw(*shader);
-    //glDisable(GL_BLEND);
-    //glDepthMask(true);
 }
 
 
