@@ -45,8 +45,8 @@ const float PI = 3.14159265359;
 vec3 FresnelSchlick(vec3 F0, float cosTheta)
 {
     // TODO 8.4 : Implement the formula here
-
-    return vec3(1.0f);
+    vec3 fresnel = (diffuseReflectance * (1 - F0) + specularReflectance * F0) * cosTheta;
+    return fresnel;
 }
 
 float DistributionGGX(vec3 N, vec3 H, float a)
@@ -115,15 +115,11 @@ vec3 GetNormalMap()
 
 vec3 GetAmbientLighting(vec3 albedo, vec3 normal)
 {
-    // TODO 8.2 : Remove this line
-    vec3 ambient = ambientLightColor.rgb * albedo;
-
     // TODO 8.2 : Get the ambient color by sampling the environment mapping using the normal.
-
-
+    vec3 ambient = textureLod(texture_ambient1, textureCoordinates * normal.xy, 6).rgb;
     // TODO 8.2 : Scale the light by the albedo, considering also that it gets reflected equally in all directions
-
-
+    ambient *= albedo;
+    ambient /= PI;
     // Only apply ambient during the first light pass
     ambient *= ambientLightColor.a;
 
@@ -157,7 +153,7 @@ vec3 GetLambertianDiffuseLighting(vec3 N, vec3 L, vec3 albedo)
     vec3 diffuse = diffuseReflectance * albedo;
 
     // TODO 8.3 : Scale the diffuse light, considering that it gets reflected equally in all directions
-
+    diffuse /= PI;
 
     return diffuse;
 }
@@ -181,7 +177,7 @@ float GetAttenuation(vec4 P)
 
     return attenuation * falloff;
 }
-
+// https://stackoverflow.com/questions/33975576/shadow-mapping-transforming-a-view-space-position-to-the-shadow-map-space
 float GetShadow()
 {
     // TODO 8.1 : Transform the position in light space to shadow map space: from range (-1, 1) to range (0, 1)
@@ -247,7 +243,8 @@ void main()
 
 
     // TODO 8.4 : Compute the Fresnel term for indirect light, using the clamped cosine of the angle formed by the NORMAL vector and the view vector
-
+    //    float cosAngle = dot(N, V);
+    //    vec3 fresnel = FresnelSchlick(F0, cosAngle);
 
     // TODO 8.4 : Mix ambient and environment using the fresnel you just computed as blend factor
     vec3 indirectLight = ambient;
@@ -257,7 +254,7 @@ void main()
 
     // TODO 8.4 : Use the fresnel you just computed as blend factor, instead of roughness. Pay attention to the order of the parameters in mix
     // TODO 8.3 : Instead of adding them, mix the specular and diffuse lighting using, for now, the roughness.
-    vec3 directLight = diffuse + specular;
+    vec3 directLight = mix(diffuse, specular, roughness);
     directLight *= lightRadiance;
 
     // lighting = indirect lighting (ambient + environment) + direct lighting (diffuse + specular)

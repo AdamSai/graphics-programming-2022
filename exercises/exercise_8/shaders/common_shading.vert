@@ -25,7 +25,7 @@ void main() {
     worldTangent = (model * vec4(tangent, 0.0)).xyz;
 
     // TODO 8.1 : obtain and pass to fragment shader the position in light space, converting from world space
-    lightspacePos = lightSpaceMatrix * model * vec4(vertex, 1.0);
+    lightspacePos = lightSpaceMatrix * worldPos;
 
     textureCoordinates = textCoord;
 
