@@ -14,6 +14,7 @@
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
+#include "glm/gtc/type_ptr.hpp"
 
 // glfw and input functions
 // ------------------------
@@ -32,26 +33,43 @@ void framebuffer_size_callback( GLFWwindow *window, int width, int height );
 const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
 
+const unsigned int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
+
 // global variables used for rendering
 // -----------------------------------
 Shader *shader;
-Shader *pbr_shading;
+
+Model *carBodyModel;
 Model *carPaintModel;
+Model *carInteriorModel;
+Model *carLightModel;
+Model *carWindowsModel;
+Model *carWheelModel;
 Model *floorModel;
-Camera camera( glm::vec3( 0.0f, 1.6f, 5.0f ), glm::vec3( 0.0f, 1.0f, 0.0f ), (float) SCR_WIDTH / SCR_HEIGHT );
-Camera cullingCamera;
+GLuint carBodyTexture;
+GLuint carPaintTexture;
+GLuint carLightTexture;
+GLuint carWindowsTexture;
+GLuint carWheelTexture;
+Camera camera( glm::vec3( 0.0f, 1.6f, 5.0f ));
 
-bool updateCulling = true;
-int cullingShader = -1;
+// plane setting
+// --------------
+constexpr GLuint dimensions = 50;
+int numberOfVertices = 0;
+int numberOfIndices = 0;
+float vertices[dimensions * dimensions * 3];
+unsigned int indices[( dimensions - 1 ) * ( dimensions - 1 ) * 6];
 
 
-GLuint sourceInstanceBuffer;
-GLuint visibleInstanceBuffer;
-GLuint indirectDrawBuffer;
+void setupPlane();
 
 Shader *skyboxShader;
 unsigned int skyboxVAO; // skybox handle
 unsigned int cubemapTexture; // skybox texture handle
+
+unsigned int shadowMap, shadowMapFBO;
+glm::mat4 lightSpaceMatrix;
 
 // global variables used for control
 // ---------------------------------
@@ -88,28 +106,28 @@ struct Config
 
         // light 1
         lights.emplace_back( glm::vec3( -1.0f, 1.0f, -0.5f ), glm::vec3( 1.0f, 1.0f, 1.0f ), 1.0f, 0.0f );
+
+        // light 2
+        lights.emplace_back( glm::vec3( 1.0f, 1.5f, 0.0f ), glm::vec3( 0.7f, 0.2f, 1.0f ), 1.0f, 10.0f );
     }
+
+    // ambient light
+    glm::vec3 ambientLightColor = { 1.0f, 1.0f, 1.0f };
+    float ambientLightIntensity = 0.25f;
 
     // material
     glm::vec3 reflectionColor = { 0.9f, 0.9f, 0.2f };
+    float ambientReflectance = 0.75f;
+    float diffuseReflectance = 0.75f;
+    float specularReflectance = 0.5f;
+    float specularExponent = 10.0f;
     float roughness = 0.5f;
     float metalness = 0.0f;
 
     std::vector<Light> lights;
 
-    bool enableCulling = true;
-
-    // TODO 12.2 : Change the default value to true
-    bool enableInstancing = true;
 } config;
 
-// structure to hold car instances
-struct Car
-{
-    glm::mat4 modelMatrix;
-    glm::vec4 color;
-};
-std::vector<Car> cars;
 
 // function declarations
 // ---------------------
@@ -119,9 +137,10 @@ void setLightUniforms( Light &light );
 
 void setupForwardAdditionalPass();
 
-void resetForwardAdditionalPass();
 
 void drawSkybox();
+
+void drawShadowMap();
 
 void drawObjects();
 
@@ -131,20 +150,16 @@ unsigned int initSkyboxBuffers();
 
 unsigned int loadCubemap( vector<std::string> faces );
 
-bool isFrustumVisibleSphere( const Camera &camera, const glm::mat4 &matrix, float radius );
+void createShadowMap();
 
-void createCarInstances();
-
-void createCullingCompute();
-
-void runCullingCompute();
+void setShadowUniforms();
 
 int main()
 {
     // glfw: initialize and configure
     // ------------------------------
     glfwInit();
-    glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, 4 );
+    glfwWindowHint( GLFW_CONTEXT_VERSION_MAJOR, 3 );
     glfwWindowHint( GLFW_CONTEXT_VERSION_MINOR, 3 );
     glfwWindowHint( GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE );
 
@@ -154,7 +169,7 @@ int main()
 
     // glfw window creation
     // --------------------
-    GLFWwindow *window = glfwCreateWindow( SCR_WIDTH, SCR_HEIGHT, "Exercise 12", NULL, NULL );
+    GLFWwindow *window = glfwCreateWindow( SCR_WIDTH, SCR_HEIGHT, "Water Water Water", NULL, NULL );
     if ( window == NULL )
     {
         std::cout << "Failed to create GLFW window" << std::endl;
@@ -167,9 +182,6 @@ int main()
     glfwSetKeyCallback( window, key_input_callback );
     glfwSetScrollCallback( window, scroll_callback );
 
-    // NEW! Disable V sync to have better visibility on the frame rate
-    glfwSwapInterval( 0 );
-
     glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_DISABLED );
 
     // glad: load all OpenGL function pointers
@@ -180,21 +192,7 @@ int main()
         return -1;
     }
 
-    // load the shaders and the 3D models
-    // ----------------------------------
-    pbr_shading = new Shader( "shaders/water.vert", "shaders/water.frag" );
-    shader = pbr_shading;
-
-    carPaintModel = new Model( "car/Paint_LOD0.obj" );
-
-    floorModel = new Model( "floor/floor.obj" );
-
-    // create all cars
-    createCarInstances();
-
-    // create compute shader for frustum culling on GPU
-    createCullingCompute();
-
+    shader = new Shader( "shaders/water.vert", "shaders/water.frag" );
     // init skybox
     vector<std::string> faces
             {
@@ -209,14 +207,34 @@ int main()
     skyboxVAO = initSkyboxBuffers();
     skyboxShader = new Shader( "shaders/skybox.vert", "shaders/skybox.frag" );
 
+
+    // init plane
+    setupPlane();
+
+    GLuint squareVAO, VBO, EBO;
+    glGenVertexArrays( 1, &squareVAO );
+    glBindVertexArray( squareVAO );
+
+    glGenBuffers( 1, &VBO );
+    glBindBuffer( GL_ARRAY_BUFFER, VBO );
+    glBufferData( GL_ARRAY_BUFFER, numberOfVertices * sizeof( GLfloat ), &vertices, GL_STATIC_DRAW );
+
+    glGenBuffers( 1, &EBO );
+    glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, EBO );
+    glBufferData( GL_ELEMENT_ARRAY_BUFFER, numberOfIndices * sizeof( GLuint ), &indices, GL_STATIC_DRAW );
+    GLint PosAttrib{ glGetAttribLocation( shader->ID, "position" ) };
+    glVertexAttribPointer( PosAttrib, 3, GL_FLOAT, GL_FALSE, 3 * sizeof( GLfloat ),
+                           (GLvoid *) 0 ); // Note that we skip over the normal vectors
+    glEnableVertexAttribArray( PosAttrib );
+    glBindVertexArray( 0 );
+
     // set up the z-buffer
     // -------------------
     glDepthRange( -1, 1 ); // make the NDC a right handed coordinate system, with the camera pointing towards -z
     glEnable( GL_DEPTH_TEST ); // turn on z-buffer depth test
     glDepthFunc( GL_LESS ); // draws fragments that are closer to the screen in NDC
 
-
-    // Enable SRGB framebuffer
+    // NEW! Enable SRGB framebuffer
     glEnable( GL_FRAMEBUFFER_SRGB );
 
     // Dear IMGUI init
@@ -233,40 +251,49 @@ int main()
     // -----------
     while ( !glfwWindowShouldClose( window ))
     {
+        glClearColor( 1.0f, 0.3f, 0.3f, 1.0f );
+        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+
         static float lastFrame = 0.0f;
         float currentFrame = (float) glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
-        glm::mat4 projection = camera.GetProjectionMatrix();
+        glm::mat4 projection = glm::perspective( camera.Zoom, (float) SCR_WIDTH / (float) SCR_HEIGHT,
+                                                 0.1f, 1000.0f );
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 viewProjection = projection * view;
 
+
         processInput( window );
 
-        glClearColor( 0.3f, 0.3f, 0.3f, 1.0f );
-        glClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 
         drawSkybox();
 
+
         shader->use();
 
+        view = camera.GetViewMatrix();
 
-        // First light + ambient
-        setAmbientUniforms( glm::vec3( 1.0f ));
-        setLightUniforms( config.lights[0] );
-        drawObjects();
+        GLint modelLoc = glGetUniformLocation( shader->ID, "model" );
+        GLint viewLoc = glGetUniformLocation( shader->ID, "view" );
+        GLint projLoc = glGetUniformLocation( shader->ID, "projection" );
 
-        // Additional additive lights
-        setupForwardAdditionalPass();
-        for ( int i = 1; i < config.lights.size(); ++i )
+        // Pass the matrices to the shader
+        glUniformMatrix4fv( viewLoc, 1, GL_FALSE, glm::value_ptr( view ));
+        glUniformMatrix4fv( projLoc, 1, GL_FALSE, glm::value_ptr( projection ));
+
+        glBindVertexArray( squareVAO );
+        glm::mat4 model = glm::mat4( 1.0f );
+        glUniformMatrix4fv( modelLoc, 1, GL_FALSE, glm::value_ptr( model ));
+        glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
+        glBindVertexArray( 0 );
+
+
+        if ( isPaused )
         {
-            setLightUniforms( config.lights[i] );
-            drawObjects();
+            drawGui();
         }
-        resetForwardAdditionalPass();
-
-        drawGui();
 
         glfwSwapBuffers( window );
         glfwPollEvents();
@@ -278,9 +305,13 @@ int main()
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
+    delete carBodyModel;
     delete carPaintModel;
+    delete carInteriorModel;
+    delete carLightModel;
+    delete carWindowsModel;
+    delete carWheelModel;
     delete floorModel;
-    delete pbr_shading;
 
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
@@ -290,45 +321,20 @@ int main()
 
 void drawGui()
 {
-
-    // Start the Dear ImGui frame
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
-
-    if ( isPaused )
     {
+
         ImGui::Begin( "Settings" );
 
-        ImGui::Text( "Light 1: " );
-        ImGui::DragFloat3( "light 1 direction", (float *) &config.lights[0].position, .1f, -20, 20 );
-        ImGui::ColorEdit3( "light 1 color", (float *) &config.lights[0].color );
-        ImGui::SliderFloat( "light 1 intensity", &config.lights[0].intensity, 0.0f, 2.0f );
-        ImGui::Separator();
-
-        ImGui::Text( "Car paint material: " );
-        ImGui::SliderFloat( "roughness", &config.roughness, 0.01f, 1.0f );
-        ImGui::SliderFloat( "metalness", &config.metalness, 0.0f, 1.0f );
-        ImGui::Separator();
-
-        ImGui::Checkbox( "Frustum Culling", &config.enableCulling );
-        ImGui::Checkbox( "Instancing", &config.enableInstancing );
-
+        ImGui::Text( "Ambient light: " );
         ImGui::End();
     }
-
-    ImGui::Begin( "FPS", nullptr, ImGuiWindowFlags_NoDecoration );
-    ImGui::Text( "Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate,
-                 ImGui::GetIO().Framerate );
-    ImGui::End();
-
-    glDisable( GL_FRAMEBUFFER_SRGB );
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData());
-
     glEnable( GL_FRAMEBUFFER_SRGB );
 }
-
 
 void setAmbientUniforms( glm::vec3 ambientLightColor )
 {
@@ -337,17 +343,6 @@ void setAmbientUniforms( glm::vec3 ambientLightColor )
                      glm::vec4( ambientLightColor, glm::length( ambientLightColor ) > 0.0f ? 1.0f : 0.0f ));
 }
 
-void setLightUniforms( Light &light )
-{
-    glm::vec3 lightEnergy = light.color * light.intensity;
-
-    lightEnergy *= glm::pi<float>();
-
-    // light uniforms
-    shader->setVec3( "lightPosition", light.position );
-    shader->setVec3( "lightColor", lightEnergy );
-    shader->setFloat( "lightRadius", light.radius );
-}
 
 void setupForwardAdditionalPass()
 {
@@ -360,20 +355,10 @@ void setupForwardAdditionalPass()
 
     // Set depth test to GL_EQUAL (only the fragments that match the depth buffer are rendered)
     glDepthFunc( GL_EQUAL );
-}
 
-
-void resetForwardAdditionalPass()
-{
-    // Restore ambient
-    setAmbientUniforms( glm::vec3( 1.0f ));
-
-    //Disable blend and restore default blend function
-    glDisable( GL_BLEND );
-    glBlendFunc( GL_ONE, GL_ZERO );
-
-    // Restore default depth test
-    glDepthFunc( GL_LESS );
+    // Disable shadowmap
+    glActiveTexture( GL_TEXTURE5 );
+    glBindTexture( GL_TEXTURE_2D, 0 );
 }
 
 
@@ -493,7 +478,8 @@ void drawSkybox()
     glDepthFunc(
             GL_LEQUAL );  // change depth function so depth test passes when values are equal to depth buffer's content
     skyboxShader->use();
-    glm::mat4 projection = camera.GetProjectionMatrix();
+    glm::mat4 projection = glm::perspective( glm::radians( camera.Zoom ), (float) SCR_WIDTH / (float) SCR_HEIGHT, 0.1f,
+                                             100.0f );
     glm::mat4 view = camera.GetViewMatrix();
     skyboxShader->setMat4( "projection", projection );
     skyboxShader->setMat4( "view", view );
@@ -508,204 +494,41 @@ void drawSkybox()
     glDepthFunc( GL_LESS ); // set depth function back to default
 }
 
-void drawObjects()
+
+void createShadowMap()
 {
-    // the typical transformation uniforms are already set for you, these are:
-    // projection (perspective projection matrix)
-    // view (to map world space coordinates to the camera space, so the camera position becomes the origin)
-    // model (for each model part we draw)
+    // create depth texture
+    glGenTextures( 1, &shadowMap );
+    glBindTexture( GL_TEXTURE_2D, shadowMap );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
+                  NULL );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                     GL_LINEAR ); // if you replace GL_LINEAR with GL_NEAREST you will see pixelation in the borders of the shadow
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+                     GL_LINEAR ); // if you replace GL_LINEAR with GL_NEAREST you will see pixelation in the borders of the shadow
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER );
+    float borderColor[] = { 1.0, 1.0, 1.0, 1.0 };
+    glTexParameterfv( GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor );
 
-    // camera parameters
-    glm::mat4 projection = camera.GetProjectionMatrix();
-    glm::mat4 view = camera.GetViewMatrix();
-    glm::mat4 viewProjection = projection * view;
-
-    // camera position
-    shader->setVec3( "camPosition", camera.Position );
-    // set viewProjection matrix uniform
-    shader->setMat4( "viewProjection", viewProjection );
-
-    // set up skybox texture
-    shader->setInt( "skybox", 5 );
-    glActiveTexture( GL_TEXTURE5 );
-    glBindTexture( GL_TEXTURE_CUBE_MAP, cubemapTexture );
-
-    // material uniforms for car paint
-    shader->setFloat( "roughness", config.roughness );
-    shader->setFloat( "metalness", config.metalness );
-
-    // Copy current camera to culling camera, if culling update is enabled
-    // Normally you would use the camera directly, we do it in this way so you can pause culling, move the camera, and observe the culling results easily
-    if ( updateCulling )
-        cullingCamera = camera;
-
-    // Draw all cars
-    if ( !config.enableInstancing )
-    {
-        for ( const Car &car: cars )
-        {
-            // TODO 12.1 : Only execute this block if culling is not enabled or if the bounding sphere is visible in cullingCamera
-            if ( !config.enableCulling || isFrustumVisibleSphere( cullingCamera, car.modelMatrix, 2.5f ))
-            {
-                shader->setMat4( "model", car.modelMatrix );
-                shader->setVec4( "reflectionColor", car.color );
-                carPaintModel->Draw( *shader );
-            }
-        }
-    } else
-    {
-        // TODO 12.3 : if culling is enabled, run culling compute
-        if ( config.enableCulling )
-        {
-            runCullingCompute();
-        }
-
-
-        // TODO 12.3 : Bind the visible instance buffer, if culling is enabled, or source instance buffer, if it is not
-        // TODO 12.2 : Bind the source instance buffer as GL_SHADER_STORAGE_BUFFER, with index 0
-        glBindBufferBase( GL_SHADER_STORAGE_BUFFER, 0,
-                          config.enableCulling ? visibleInstanceBuffer : sourceInstanceBuffer );
-
-        // TODO 12.3 : Add an extra parameter with the indirect buffer, if culling is enabled, or 0, if it is not
-        // TODO 12.2 : Draw the carPaintModel, using the same shader, but with an extra parameter for the number of cars
-        carPaintModel->Draw( *shader, (int) cars.size(), config.enableCulling ? indirectDrawBuffer : 0 );
-
-        // TODO 12.2 : Unbind the GL_SHADER_STORAGE_BUFFER
-        glBindBufferBase( GL_SHADER_STORAGE_BUFFER, 0, 0 );
-    }
-
-    // draw floor
-    {
-        glm::mat4 model = glm::scale( glm::mat4( 1.0 ), glm::vec3( 5.f, 5.f, 5.f ));
-        shader->setMat4( "model", model );
-        shader->setVec4( "reflectionColor", 1.0f, 1.0f, 1.0f, 1.0f );
-        shader->setFloat( "metalness", 0.0f );
-        shader->setFloat( "roughness", 0.95f );
-        floorModel->Draw( *shader );
-    }
+    // attach depth texture as FBO's depth buffer
+    glGenFramebuffers( 1, &shadowMapFBO );
+    glBindFramebuffer( GL_FRAMEBUFFER, shadowMapFBO );
+    glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowMap, 0 );
+    glDrawBuffer( GL_NONE );
+    glReadBuffer( GL_NONE );
+    glBindFramebuffer( GL_FRAMEBUFFER, 0 );
 }
 
-// Checks if a bounding sphere (determined by its transform matrix and radius) is visible inside the frustum of a camera
-bool isFrustumVisibleSphere( const Camera &camera, const glm::mat4 &matrix, float radius )
+
+void setShadowUniforms()
 {
-    bool visible = true;
-
-    glm::vec3 center = matrix[3];
-    glm::vec3 planePoint, planeNormal;
-    for ( int plane = (int) Camera_Planes::FIRST_PLANE; plane < (int) Camera_Planes::PLANE_COUNT; ++plane )
-    {
-        camera.GetFrustumPlane((Camera_Planes) plane, planePoint, planeNormal );
-
-        // TODO 12.1 : Get the distance of the center to the plane and compare it to the radius. If it is not visible, return false.
-        visible = glm::dot( center - planePoint, planeNormal ) > -radius;
-
-        if ( !visible )
-            break;
-    }
-    return visible;
-}
-
-void createCarInstances()
-{
-    const glm::ivec2 side( 40, 15 ); // Create a grid of 81 x 31 cars ~ 2500 cars
-    const glm::vec2 separation( 2.0f, 5.0f );
-    int carCount = ( side.x * 2 + 1 ) * ( side.y * 2 + 1 );
-    cars.reserve( carCount );
-    for ( int j = -side.y; j <= side.y; ++j )
-    {
-        for ( int i = -side.x; i <= side.x; ++i )
-        {
-            Car car;
-            // Model transformation matrix. No rotation or scale, just translation
-            car.modelMatrix = glm::translate( glm::mat4( 1.0f ), glm::vec3( i * separation.x, 0.0f, j * separation.y ));
-            // Random color
-            car.color = glm::vec4( rand() / double( RAND_MAX ), rand() / double( RAND_MAX ),
-                                   rand() / double( RAND_MAX ), 1.0f );
-            cars.push_back( car );
-        }
-    }
-
-    // create a buffer that contains all the instance data. It is STATIC because we won't modify it
-    glGenBuffers( 1, &sourceInstanceBuffer );
-    glBindBuffer( GL_SHADER_STORAGE_BUFFER, sourceInstanceBuffer );
-    glBufferData( GL_SHADER_STORAGE_BUFFER, cars.size() * sizeof( Car ), cars.data(), GL_STATIC_DRAW );
-    glBindBuffer( GL_SHADER_STORAGE_BUFFER, 0 );
-
-    // create a buffer that can contain all the instance data. It is DYNAMIC because we will copy only the visible instances every frame
-    glGenBuffers( 1, &visibleInstanceBuffer );
-    glBindBuffer( GL_SHADER_STORAGE_BUFFER, visibleInstanceBuffer );
-    glBufferData( GL_SHADER_STORAGE_BUFFER, cars.size() * sizeof( Car ), cars.data(), GL_DYNAMIC_DRAW );
-    glBindBuffer( GL_SHADER_STORAGE_BUFFER, 0 );
-
-    // create the indirect draw buffer
-    glGenBuffers( 1, &indirectDrawBuffer );
-}
-
-void createCullingCompute()
-{
-    cullingShader = glCreateProgram();
-
-    int computeShader = glCreateShader( GL_COMPUTE_SHADER );
-
-    std::ifstream shaderStream( "shaders/culling.glsl" );
-    std::ostringstream stringStream;
-    stringStream << shaderStream.rdbuf();
-    string shaderCodeStr = stringStream.str();
-    const char *shaderCode = shaderCodeStr.c_str();
-    glShaderSource( computeShader, 1, &shaderCode, nullptr );
-    glCompileShader( computeShader );
-    Shader::checkCompileErrors( computeShader, "COMPUTE" );
-    glAttachShader( cullingShader, computeShader );
-
-    glLinkProgram( cullingShader );
-    Shader::checkCompileErrors( cullingShader, "PROGRAM" );
-
-    glDeleteShader( computeShader );
-}
-
-void runCullingCompute()
-{
-    // Fill the indirect buffer with the initial data
-    glBindBuffer( GL_DRAW_INDIRECT_BUFFER, indirectDrawBuffer );
-    int indirectData[5] =
-            {
-                    (int) carPaintModel->meshes[0].indices.size(),
-                    0, // instance count
-                    0, // first index
-                    0, // base vertex
-                    0  // base instance
-            };
-    glBufferData( GL_DRAW_INDIRECT_BUFFER, 5 * sizeof( int ), indirectData, GL_DYNAMIC_DRAW );
-    glBindBuffer( GL_DRAW_INDIRECT_BUFFER, 0 );
-
-    // Set the compute shader as the active shader
-    glUseProgram( cullingShader );
-
-    // Gather the 6 frustum planes
-    glm::vec3 planes[6 * 2];
-    for ( int plane = (int) Camera_Planes::FIRST_PLANE; plane < (int) Camera_Planes::PLANE_COUNT; ++plane )
-    {
-        cullingCamera.GetFrustumPlane((Camera_Planes) plane, planes[plane * 2], planes[plane * 2 + 1] );
-    }
-    // Pass the uniforms
-    glUniform1f( glGetUniformLocation( cullingShader, "cullingRadius" ), 2.5f );
-    glUniform3fv( glGetUniformLocation( cullingShader, "frustumPlanes" ), 6 * 2, (const float *) planes );
-
-    // Bind the buffers:
-    // - sourceInstanceBuffer: the instance data of all the cars
-    // - visibleInstanceBuffer: the destination buffer, to store only the visible cars
-    // - indirectDrawBuffer: the indirect buffer, to modify the count of visible instances
-    glBindBufferBase( GL_SHADER_STORAGE_BUFFER, 0, sourceInstanceBuffer );
-    glBindBufferBase( GL_SHADER_STORAGE_BUFFER, 1, visibleInstanceBuffer );
-    glBindBufferBase( GL_SHADER_STORAGE_BUFFER, 2, indirectDrawBuffer );
-    // Dispatch the cars, in groups of 64
-    glDispatchCompute(((int) cars.size() + 63 ) / 64, 1, 1 );
-
-    // Make sure that the visibleInstanceBuffer and indirectDrawBuffer are finished being written to
-    glMemoryBarrier( GL_ATOMIC_COUNTER_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT );
-
-    // restore pbr shader
-    shader->use();
+    // shadow uniforms
+    shader->setMat4( "lightSpaceMatrix", lightSpaceMatrix );
+    shader->setInt( "shadowMap", 6 );
+    glActiveTexture( GL_TEXTURE6 );
+    glBindTexture( GL_TEXTURE_2D, shadowMap );
+    //shader->setFloat("shadowBias", config.shadowBias * 0.01f);
 }
 
 
@@ -719,13 +542,13 @@ void processInput( GLFWwindow *window )
 
     // movement commands
     if ( glfwGetKey( window, GLFW_KEY_W ) == GLFW_PRESS )
-        camera.ProcessKeyboard( Camera_Movement::FORWARD, deltaTime );
+        camera.ProcessKeyboard( FORWARD, deltaTime );
     if ( glfwGetKey( window, GLFW_KEY_S ) == GLFW_PRESS )
-        camera.ProcessKeyboard( Camera_Movement::BACKWARD, deltaTime );
+        camera.ProcessKeyboard( BACKWARD, deltaTime );
     if ( glfwGetKey( window, GLFW_KEY_A ) == GLFW_PRESS )
-        camera.ProcessKeyboard( Camera_Movement::LEFT, deltaTime );
+        camera.ProcessKeyboard( LEFT, deltaTime );
     if ( glfwGetKey( window, GLFW_KEY_D ) == GLFW_PRESS )
-        camera.ProcessKeyboard( Camera_Movement::RIGHT, deltaTime );
+        camera.ProcessKeyboard( RIGHT, deltaTime );
 }
 
 void cursor_input_callback( GLFWwindow *window, double posX, double posY )
@@ -763,10 +586,6 @@ void key_input_callback( GLFWwindow *window, int button, int other, int action, 
         glfwSetInputMode( window, GLFW_CURSOR, isPaused ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED );
     }
 
-    if ( glfwGetKey( window, GLFW_KEY_C ) == GLFW_PRESS )
-    {
-        updateCulling = !updateCulling;
-    }
 }
 
 // glfw: whenever the mouse scroll wheel scrolls, this callback is called
@@ -782,4 +601,43 @@ void framebuffer_size_callback( GLFWwindow *window, int width, int height )
     // make sure the viewport matches the new window dimensions; note that width and
     // height will be significantly larger than specified on retina displays.
     glViewport( 0, 0, width, height );
+}
+
+// https://stackoverflow.com/questions/65199704/drawing-a-plane-with-vertex-buffer-object
+void setupPlane()
+{
+    int half = dimensions / 2;
+    for ( int i = 0; i < dimensions; ++i )
+    {
+        for ( int j = 0; j < dimensions; ++j )
+        {
+            float x = j - half;
+            float y = 0;
+            float z = i - half;
+
+            vertices[numberOfVertices++] = x;
+            vertices[numberOfVertices++] = y;
+            vertices[numberOfVertices++] = z;
+        }
+    }
+
+    for ( int row = 0; row < dimensions - 1; ++row )
+    {
+        for ( int col = 0; col < dimensions - 1; ++col )
+        {
+            // d = row
+            // w = col
+
+
+            indices[numberOfIndices++] = dimensions * row + col;
+            indices[numberOfIndices++] = dimensions * row + col + dimensions;
+            indices[numberOfIndices++] = dimensions * row + col + dimensions + 1;
+
+            indices[numberOfIndices++] = dimensions * row + col;
+            indices[numberOfIndices++] = dimensions * row + col + dimensions + 1;
+            indices[numberOfIndices++] = dimensions * row + col + 1;
+
+        }
+    }
+
 }

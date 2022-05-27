@@ -186,8 +186,8 @@ int main()
 
     // load the shaders and the 3D models
     // ----------------------------------
-    phong_shading = new Shader( "shaders/common_shading.vert", "shaders/phong_shading.frag" );
-    pbr_shading = new Shader( "shaders/common_shading.vert", "shaders/pbr_shading.frag" );
+    phong_shading = new Shader( "shaders/water.vert", "shaders/phong_shading.frag" );
+    pbr_shading = new Shader( "shaders/water.vert", "shaders/water.frag" );
     shader = pbr_shading;
 
     carBodyModel = new Model( "car/Body_LOD0.obj" );
