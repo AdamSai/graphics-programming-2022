@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include <vector>
+#include <gl/GL.h>
 
 // NEW! as our scene gets more complex, we start using more helper classes
 //  I recommend that you read through the camera.h and model.h files to see if you can map the the previous
@@ -126,6 +127,8 @@ struct Config
 
     std::vector<Light> lights;
 
+    bool showWireframe = false;
+    float waveStrength = 1.0f;
 } config;
 
 
@@ -237,6 +240,10 @@ int main()
     // NEW! Enable SRGB framebuffer
     glEnable( GL_FRAMEBUFFER_SRGB );
 
+
+    // Enable Face Culling Report
+    glEnable( GL_CULL_FACE );
+
     // Dear IMGUI init
     // ---------------
     IMGUI_CHECKVERSION();
@@ -261,6 +268,7 @@ int main()
 
         glm::mat4 projection = glm::perspective( camera.Zoom, (float) SCR_WIDTH / (float) SCR_HEIGHT,
                                                  0.1f, 1000.0f );
+        glm::mat4 model = glm::mat4( 1.0f );
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 viewProjection = projection * view;
 
@@ -275,17 +283,13 @@ int main()
 
         view = camera.GetViewMatrix();
 
-        GLint modelLoc = glGetUniformLocation( shader->ID, "model" );
-        GLint viewLoc = glGetUniformLocation( shader->ID, "view" );
-        GLint projLoc = glGetUniformLocation( shader->ID, "projection" );
-
-        // Pass the matrices to the shader
-        glUniformMatrix4fv( viewLoc, 1, GL_FALSE, glm::value_ptr( view ));
-        glUniformMatrix4fv( projLoc, 1, GL_FALSE, glm::value_ptr( projection ));
-
         glBindVertexArray( squareVAO );
-        glm::mat4 model = glm::mat4( 1.0f );
-        glUniformMatrix4fv( modelLoc, 1, GL_FALSE, glm::value_ptr( model ));
+        // Pass the matrices to the shader
+        shader->setMat4( "view", view );
+        shader->setMat4( "projection", projection );
+        shader->setMat4( "model", model );
+        shader->setFloat( "time", currentFrame );
+        shader->setFloat( "waveStrength", config.waveStrength );
         glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
         glBindVertexArray( 0 );
 
@@ -293,6 +297,14 @@ int main()
         if ( isPaused )
         {
             drawGui();
+        }
+        if ( config.showWireframe )
+        {
+            glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+        } else
+        {
+            glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+
         }
 
         glfwSwapBuffers( window );
@@ -325,11 +337,11 @@ void drawGui()
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     {
-
         ImGui::Begin( "Settings" );
-
-        ImGui::Text( "Ambient light: " );
+        ImGui::Checkbox( "Wireframe", &config.showWireframe );
+        ImGui::SliderFloat( "Wave Strength", &config.waveStrength, 0.0f, 10.0f );
         ImGui::End();
+
     }
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData());
