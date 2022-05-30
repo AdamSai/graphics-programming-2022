@@ -1,17 +1,58 @@
 #version 330 core
 
+//uniform float a;
+//uniform float amplitude;
+//uniform float grid_points;
+//
+//uniform sampler2D z_tex;
+//uniform sampler2D old_z_tex;
+//
+//uniform sampler2D collision_texture;
+//uniform sampler2D old_collision_texture;
+//
+//uniform sampler2D land_texture;
+
+uniform sampler2D heightmapTexture;
+uniform float time;
+
+in vec2 UV;
 in vec4 FragPos;
+layout(location = 0) out vec3 color;
+in vec2 uv;
+
 void main()
 {
-    if (FragPos.y >= 3)
-    gl_FragColor  = vec4(1, 1, 1, 1);
+    // float pix_size = 1.0f/grid_points;
 
-    else if (FragPos.y >= 1)
-    gl_FragColor  = vec4(0.38, 0.41, 1, 1);
+    // vec4 z = a * (texture(z_tex, UV + vec2(pix_size, 0.0f))
+    //           + texture(z_tex, UV - vec2(pix_size, 0.0f))
+    //           + texture(z_tex, UV + vec2(0.0f, pix_size))
+    //           + texture(z_tex, UV - vec2(0.0f, pix_size)))
+    //      + (2.0f - 4.0f * a) * (texture(z_tex, UV))
+    //      - (texture(old_z_tex, UV));
 
-    else if (FragPos.y >= 0.2)
-    gl_FragColor  = vec4(0.65, 0.66, 1, 1);
+    // float z_new_pos = z.r; // positive waves are stored in the red channel
+    // float z_new_neg = z.g; // negative waves are stored in the green channel
 
-    else
-    gl_FragColor  = vec4(0, 0.05, 1, 1);
+    // float collision_state_old = texture(old_collision_texture, UV).r;
+    // float collision_state_new = texture(collision_texture, UV).r;
+
+    // if (collision_state_new > 0.0f && collision_state_old == 0.0f) {
+    //     z_new_pos = amplitude * collision_state_new;
+    // } else if (collision_state_new == 0.0f && collision_state_old > 0.0f) {
+    //     z_new_neg = amplitude * collision_state_old;
+    // }
+
+    // float land = texture(land_texture, UV).r;
+    // if (land > 0.0f) {
+    //     z_new_pos = 0.0f;
+    //     z_new_neg = 0.0f;
+    // }
+
+    float normX = (FragPos.x - 0) / (50 - 0);
+    float normY = (FragPos.y - 0) / (50 - 0);
+    vec2 uvv = vec2(normX, normY);
+
+    // vec2 uv = vec2(FragPos.x / )
+    color = texture(heightmapTexture, uv + 0.005*vec2(sin(time+1024.0*uv.x), cos(time+768.0*uv.y))).xyz;
 }

@@ -38,3 +38,7 @@
 *.out
 *.app
 /build/
+
+.vscode/settings.json
+
+.vscode/tasks.json

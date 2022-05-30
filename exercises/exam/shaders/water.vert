@@ -1,6 +1,7 @@
 #version 330 core
 layout (location = 0) in vec3 position;
-layout (location = 1) in vec4 neighbours;
+layout (location = 1) in vec2 texCoords;
+out vec2 uv;
 uniform float time;
 uniform float waveStrength;
 
@@ -23,7 +24,7 @@ void main()
     float min = -waveStrength / 4;
     gl_Position = projection * view *  model * vec4(pos, 1.0f);
 
-
+    uv = texCoords;
     FragPos = model * vec4(pos, 1.0f);
 
 }

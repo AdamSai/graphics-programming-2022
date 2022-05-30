@@ -34,7 +34,6 @@ void framebuffer_size_callback( GLFWwindow *window, int width, int height );
 const unsigned int SCR_WIDTH = 1280;
 const unsigned int SCR_HEIGHT = 720;
 
-const unsigned int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
 
 // global variables used for rendering
 // -----------------------------------
@@ -56,22 +55,18 @@ Camera camera( glm::vec3( 0.0f, 1.6f, 5.0f ));
 
 // plane setting
 // --------------
+
 constexpr GLuint dimensions = 50;
 int numberOfVertices = 0;
 int numberOfIndices = 0;
-float vertices[dimensions * dimensions * 3];
+Vertex vertices[dimensions * dimensions * 3];
 unsigned int indices[( dimensions - 1 ) * ( dimensions - 1 ) * 6];
 
-// Water shader setting
-void setupPlane();
-
-int GetVertexIndexAt( int xCoordinate, int yCoordinate );
 
 Shader *skyboxShader;
 unsigned int skyboxVAO; // skybox handle
 unsigned int cubemapTexture; // skybox texture handle
 
-unsigned int shadowMap, shadowMapFBO;
 glm::mat4 lightSpaceMatrix;
 
 // global variables used for control
@@ -145,7 +140,6 @@ void setupForwardAdditionalPass();
 
 void drawSkybox();
 
-void drawShadowMap();
 
 void drawObjects();
 
@@ -155,9 +149,18 @@ unsigned int initSkyboxBuffers();
 
 unsigned int loadCubemap( vector<std::string> faces );
 
-void createShadowMap();
 
-void setShadowUniforms();
+// Water shader setting report
+void setupPlane();
+
+int GetVertexIndexAt( int xCoordinate, int yCoordinate );
+
+void updateHeightmap();
+
+// 2d texture containing heightmap
+GLuint heightmapTexture;
+GLuint squareVAO, VBO, EBO;
+
 
 int main()
 {
@@ -216,21 +219,25 @@ int main()
     // init plane
     setupPlane();
 
-    GLuint squareVAO, VBO, EBO;
+
     glGenVertexArrays( 1, &squareVAO );
     glBindVertexArray( squareVAO );
 
     glGenBuffers( 1, &VBO );
     glBindBuffer( GL_ARRAY_BUFFER, VBO );
-    glBufferData( GL_ARRAY_BUFFER, numberOfVertices * sizeof( GLfloat ), &vertices, GL_STATIC_DRAW );
+    glBufferData( GL_ARRAY_BUFFER, numberOfVertices * sizeof( Vertex ), &vertices, GL_STATIC_DRAW );
 
     glGenBuffers( 1, &EBO );
     glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, EBO );
     glBufferData( GL_ELEMENT_ARRAY_BUFFER, numberOfIndices * sizeof( GLuint ), &indices, GL_STATIC_DRAW );
     GLint PosAttrib{ glGetAttribLocation( shader->ID, "position" ) };
-    glVertexAttribPointer( PosAttrib, 3, GL_FLOAT, GL_FALSE, 3 * sizeof( GLfloat ),
+    glVertexAttribPointer( PosAttrib, 3, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
                            (GLvoid *) 0 ); // Note that we skip over the normal vectors
     glEnableVertexAttribArray( PosAttrib );
+    GLint UVAttrib{ glGetAttribLocation( shader->ID, "texCoords" ) };
+    glVertexAttribPointer( UVAttrib, 2, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
+                           (GLvoid *) 0 ); // Note that we skip over the normal vectors
+    glEnableVertexAttribArray( UVAttrib );
     glBindVertexArray( 0 );
 
     // set up the z-buffer
@@ -256,6 +263,39 @@ int main()
     ImGui_ImplGlfw_InitForOpenGL( window, true );
     ImGui_ImplOpenGL3_Init( "#version 330 core" );
 
+    // Create heightmap texture
+    // -------------------------
+    // The framebuffer, which regroups 0, 1, or more textures, and 0 or 1 depth buffer.
+    GLuint FramebufferName = 0;
+    glGenFramebuffers( 1, &FramebufferName );
+    glBindFramebuffer( GL_FRAMEBUFFER, FramebufferName );
+
+    glGenTextures( 1, &heightmapTexture );
+    glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+
+    // Create all black texture with size 500x500 and pass it to the shader
+//    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
+    std::vector<unsigned char> image( 1000 * 1000 * 3 /* bytes per pixel */ );
+    for ( int i = 0; i < 1000 * 1000 * 3; i++ )
+    {
+        image[i] = 0;
+    }
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 500, 500, 0, GL_RGB, GL_UNSIGNED_BYTE, &image[0] );
+
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
+    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+
+    // Set "heightmapTexture" as our colour attachement #0
+    glFramebufferTexture( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, heightmapTexture, 0 );
+
+    // Set the list of draw buffers.
+    GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
+    glDrawBuffers( 1, DrawBuffers ); // "1" is the size of DrawBuffers
+
+    // Always check that our framebuffer is ok
+    if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
+        return false;
+
     // render loop
     // -----------
     while ( !glfwWindowShouldClose( window ))
@@ -279,7 +319,8 @@ int main()
 
 
         drawSkybox();
-
+        glActiveTexture( GL_TEXTURE1 );
+        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
 
         shader->use();
 
@@ -292,6 +333,8 @@ int main()
         shader->setMat4( "model", model );
         shader->setFloat( "time", currentFrame );
         shader->setFloat( "waveStrength", config.waveStrength );
+//        GLuint texID = glGetUniformLocation( shader->ID, "heightmapTexture" );
+
         glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
         glBindVertexArray( 0 );
 
@@ -308,7 +351,8 @@ int main()
             glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 
         }
-
+        // Render to the screen
+        glBindFramebuffer( GL_FRAMEBUFFER, 0 );
         glfwSwapBuffers( window );
         glfwPollEvents();
     }
@@ -370,9 +414,7 @@ void setupForwardAdditionalPass()
     // Set depth test to GL_EQUAL (only the fragments that match the depth buffer are rendered)
     glDepthFunc( GL_EQUAL );
 
-    // Disable shadowmap
-    glActiveTexture( GL_TEXTURE5 );
-    glBindTexture( GL_TEXTURE_2D, 0 );
+
 }
 
 
@@ -509,43 +551,6 @@ void drawSkybox()
 }
 
 
-void createShadowMap()
-{
-    // create depth texture
-    glGenTextures( 1, &shadowMap );
-    glBindTexture( GL_TEXTURE_2D, shadowMap );
-    glTexImage2D( GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT,
-                  NULL );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
-                     GL_LINEAR ); // if you replace GL_LINEAR with GL_NEAREST you will see pixelation in the borders of the shadow
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
-                     GL_LINEAR ); // if you replace GL_LINEAR with GL_NEAREST you will see pixelation in the borders of the shadow
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER );
-    glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER );
-    float borderColor[] = { 1.0, 1.0, 1.0, 1.0 };
-    glTexParameterfv( GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor );
-
-    // attach depth texture as FBO's depth buffer
-    glGenFramebuffers( 1, &shadowMapFBO );
-    glBindFramebuffer( GL_FRAMEBUFFER, shadowMapFBO );
-    glFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, shadowMap, 0 );
-    glDrawBuffer( GL_NONE );
-    glReadBuffer( GL_NONE );
-    glBindFramebuffer( GL_FRAMEBUFFER, 0 );
-}
-
-
-void setShadowUniforms()
-{
-    // shadow uniforms
-    shader->setMat4( "lightSpaceMatrix", lightSpaceMatrix );
-    shader->setInt( "shadowMap", 6 );
-    glActiveTexture( GL_TEXTURE6 );
-    glBindTexture( GL_TEXTURE_2D, shadowMap );
-    //shader->setFloat("shadowBias", config.shadowBias * 0.01f);
-}
-
-
 void processInput( GLFWwindow *window )
 {
     if ( glfwGetKey( window, GLFW_KEY_ESCAPE ) == GLFW_PRESS )
@@ -625,13 +630,18 @@ void setupPlane()
     {
         for ( int j = 0; j < dimensions; ++j )
         {
+            Vertex vertex;
+
             float x = j - half;
             float y = 0;
             float z = i - half;
+            vertex.Position = { x, y, z };
+            vertex.TexCoords = { (float) i / dimensions, (float) j / dimensions };
 
-            vertices[numberOfVertices++] = x;
-            vertices[numberOfVertices++] = y;
-            vertices[numberOfVertices++] = z;
+            vertices[numberOfVertices++] = vertex;
+            std::cout << "UV: " << std::to_string( vertex.TexCoords.x ) << " " << std::to_string( vertex.TexCoords.y )
+                      << std::endl;
+
         }
     }
 
@@ -663,9 +673,10 @@ void setupPlane()
             int right = GetVertexIndexAt( row + 1, col );
             int up = GetVertexIndexAt( row, col + 1 );
             int down = GetVertexIndexAt( row, col - 1 );
-            std::cout << "Left: " << std::to_string( left ) << " Right: " << std::to_string( right ) << " Up: "
-                      << std::to_string( up ) <<
-                      " Down: " << std::to_string( down ) << std::endl;
+//            std::cout << "Left: " << std::to_string( left ) << " Right: " << std::to_string( right ) << " Up: "
+//                      << std::to_string( up ) <<
+//                      " Down: " << std::to_string( down ) << std::endl;
+
         }
     }
 
@@ -674,4 +685,9 @@ void setupPlane()
 int GetVertexIndexAt( int xCoordinate, int yCoordinate )
 {
     return yCoordinate * ( dimensions + 1 ) + xCoordinate;
+}
+
+void updateHeightmap()
+{
+
 }
