@@ -62,8 +62,10 @@ int numberOfIndices = 0;
 float vertices[dimensions * dimensions * 3];
 unsigned int indices[( dimensions - 1 ) * ( dimensions - 1 ) * 6];
 
-
+// Water shader setting
 void setupPlane();
+
+int GetVertexIndexAt( int xCoordinate, int yCoordinate );
 
 Shader *skyboxShader;
 unsigned int skyboxVAO; // skybox handle
@@ -652,4 +654,24 @@ void setupPlane()
         }
     }
 
+    // Save neighbour info
+    for ( int row = 0; row < dimensions - 1; ++row )
+    {
+        for ( int col = 0; col < dimensions - 1; ++col )
+        {
+            int left = GetVertexIndexAt( row - 1, col );
+            int right = GetVertexIndexAt( row + 1, col );
+            int up = GetVertexIndexAt( row, col + 1 );
+            int down = GetVertexIndexAt( row, col - 1 );
+            std::cout << "Left: " << std::to_string( left ) << " Right: " << std::to_string( right ) << " Up: "
+                      << std::to_string( up ) <<
+                      " Down: " << std::to_string( down ) << std::endl;
+        }
+    }
+
+}
+
+int GetVertexIndexAt( int xCoordinate, int yCoordinate )
+{
+    return yCoordinate * ( dimensions + 1 ) + xCoordinate;
 }
