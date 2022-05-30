@@ -238,6 +238,10 @@ int main()
     glVertexAttribPointer( UVAttrib, 2, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
                            (GLvoid *) 0 ); // Note that we skip over the normal vectors
     glEnableVertexAttribArray( UVAttrib );
+    GLint NormalAttrib{ glGetAttribLocation( shader->ID, "normal" ) };
+    glVertexAttribPointer( NormalAttrib, 3, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
+                           (GLvoid *) 0 ); // Note that we skip over the normal vectors
+    glEnableVertexAttribArray( NormalAttrib );
     glBindVertexArray( 0 );
 
     // set up the z-buffer
@@ -266,7 +270,7 @@ int main()
     // Create heightmap texture
     // -------------------------
     // The framebuffer, which regroups 0, 1, or more textures, and 0 or 1 depth buffer.
-    GLuint FramebufferName = 0;
+    GLuint FramebufferName;
     glGenFramebuffers( 1, &FramebufferName );
     glBindFramebuffer( GL_FRAMEBUFFER, FramebufferName );
 
@@ -274,24 +278,32 @@ int main()
     glBindTexture( GL_TEXTURE_2D, heightmapTexture );
 
     // Create all black texture with size 500x500 and pass it to the shader
-//    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
     std::vector<unsigned char> image( 1000 * 1000 * 3 /* bytes per pixel */ );
     for ( int i = 0; i < 1000 * 1000 * 3; i++ )
     {
-        image[i] = 0;
+        image[i] = 255;
     }
+    glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
     glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 500, 500, 0, GL_RGB, GL_UNSIGNED_BYTE, &image[0] );
-
+//    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
+    std::vector<unsigned char> pixels( 1000 * 1000 * 3 );
+    glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
+    glBindTexture( GL_TEXTURE_2D, 0 );
 
     // Set "heightmapTexture" as our colour attachement #0
-    glFramebufferTexture( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, heightmapTexture, 0 );
+    glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, heightmapTexture, 0 );
 
-    // Set the list of draw buffers.
-    GLenum DrawBuffers[1] = { GL_COLOR_ATTACHMENT0 };
-    glDrawBuffers( 1, DrawBuffers ); // "1" is the size of DrawBuffers
-
+    unsigned int rbo;
+    glGenRenderbuffers( 1, &rbo );
+    glBindRenderbuffer( GL_RENDERBUFFER, rbo );
+    glRenderbufferStorage( GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 800, 600 );
+    glBindRenderbuffer( GL_RENDERBUFFER, 0 );
+    glFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo );
+    if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
+        std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
+    glBindFramebuffer( GL_FRAMEBUFFER, 0 );
     // Always check that our framebuffer is ok
     if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
         return false;
@@ -318,25 +330,36 @@ int main()
         processInput( window );
 
 
-        drawSkybox();
-        glActiveTexture( GL_TEXTURE1 );
-        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+        //    drawSkybox();
+
 
         shader->use();
 
+
+        // Always check that our framebuffer is ok
+        if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
+            return false;
         view = camera.GetViewMatrix();
 
         glBindVertexArray( squareVAO );
+
         // Pass the matrices to the shader
         shader->setMat4( "view", view );
         shader->setMat4( "projection", projection );
         shader->setMat4( "model", model );
         shader->setFloat( "time", currentFrame );
         shader->setFloat( "waveStrength", config.waveStrength );
-//        GLuint texID = glGetUniformLocation( shader->ID, "heightmapTexture" );
-
+        GLuint texID = glGetUniformLocation( shader->ID, "heightmapTexture" );
+        glUniform1i( texID, 0 );
+        glActiveTexture( GL_TEXTURE0 );
+        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+//        shader->setInt( "heightmapTexture", 1 );
+        glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
+        glReadBuffer( GL_COLOR_ATTACHMENT0 );
+        std::cout << std::to_string( pixels[0] ) << std::endl;
         glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
         glBindVertexArray( 0 );
+        glBindTexture( GL_TEXTURE_2D, 0 );
 
 
         if ( isPaused )
@@ -626,9 +649,9 @@ void framebuffer_size_callback( GLFWwindow *window, int width, int height )
 void setupPlane()
 {
     int half = dimensions / 2;
-    for ( int i = 0; i < dimensions; ++i )
+    for ( int i = 0; i < dimensions; i++ )
     {
-        for ( int j = 0; j < dimensions; ++j )
+        for ( int j = 0; j < dimensions; j++ )
         {
             Vertex vertex;
 
@@ -637,6 +660,7 @@ void setupPlane()
             float z = i - half;
             vertex.Position = { x, y, z };
             vertex.TexCoords = { (float) i / dimensions, (float) j / dimensions };
+            vertex.Normal = { 0, 1, 0 };
 
             vertices[numberOfVertices++] = vertex;
             std::cout << "UV: " << std::to_string( vertex.TexCoords.x ) << " " << std::to_string( vertex.TexCoords.y )

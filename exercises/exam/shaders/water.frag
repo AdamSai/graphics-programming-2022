@@ -13,12 +13,12 @@
 //uniform sampler2D land_texture;
 
 uniform sampler2D heightmapTexture;
+uniform sampler2D old_heightmapTexture;
 uniform float time;
 
-in vec2 UV;
 in vec4 FragPos;
 layout(location = 0) out vec3 color;
-in vec2 uv;
+in vec2 UV;
 
 void main()
 {
@@ -54,5 +54,5 @@ void main()
     vec2 uvv = vec2(normX, normY);
 
     // vec2 uv = vec2(FragPos.x / )
-    color = texture(heightmapTexture, uv + 0.005*vec2(sin(time+1024.0*uv.x), cos(time+768.0*uv.y))).xyz;
+    color = texture(heightmapTexture, uv).xyz;
 }
