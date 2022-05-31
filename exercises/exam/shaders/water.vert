@@ -6,7 +6,6 @@ out vec2 UV;
 uniform float time;
 uniform float waveStrength;
 
-out vec4 FragPos;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -23,10 +22,9 @@ void main()
 
     float max = waveStrength;
     float min = -waveStrength / 4;
-    gl_Position = projection * view *  model * vec4(pos, 1.0f);
+    gl_Position =  projection * view * model *  vec4(position, 1.0f);
 
     UV = texCoords;
-    FragPos = model * vec4(pos, 1.0f);
 
 }
 

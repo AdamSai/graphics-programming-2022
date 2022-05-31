@@ -29,6 +29,9 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY );
 
 void framebuffer_size_callback( GLFWwindow *window, int width, int height );
 
+// report
+void mouse_button_callback( GLFWwindow *window, int button, int action, int mods );
+
 // screen settings
 // ---------------
 const unsigned int SCR_WIDTH = 1280;
@@ -125,7 +128,7 @@ struct Config
     std::vector<Light> lights;
 
     bool showWireframe = false;
-    float waveStrength = 1.0f;
+    float waveStrength = 0.0f;
 } config;
 
 
@@ -157,10 +160,13 @@ int GetVertexIndexAt( int xCoordinate, int yCoordinate );
 
 void updateHeightmap();
 
+GLubyte image[500][500][3];
+
 // 2d texture containing heightmap
 GLuint heightmapTexture;
 GLuint squareVAO, VBO, EBO;
-
+bool holdingDownMouse = false;
+glm::vec2 mousePos = glm::vec2( -1.0f, -1.0f );
 
 int main()
 {
@@ -188,6 +194,7 @@ int main()
     glfwSetFramebufferSizeCallback( window, framebuffer_size_callback );
     glfwSetCursorPosCallback( window, cursor_input_callback );
     glfwSetKeyCallback( window, key_input_callback );
+    glfwSetMouseButtonCallback( window, mouse_button_callback );
     glfwSetScrollCallback( window, scroll_callback );
 
     glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_DISABLED );
@@ -201,20 +208,6 @@ int main()
     }
 
     shader = new Shader( "shaders/water.vert", "shaders/water.frag" );
-    // init skybox
-    vector<std::string> faces
-            {
-                    "skybox/right.tga",
-                    "skybox/left.tga",
-                    "skybox/top.tga",
-                    "skybox/bottom.tga",
-                    "skybox/front.tga",
-                    "skybox/back.tga"
-            };
-    cubemapTexture = loadCubemap( faces );
-    skyboxVAO = initSkyboxBuffers();
-    skyboxShader = new Shader( "shaders/skybox.vert", "shaders/skybox.frag" );
-
 
     // init plane
     setupPlane();
@@ -236,12 +229,12 @@ int main()
     glEnableVertexAttribArray( PosAttrib );
     GLint UVAttrib{ glGetAttribLocation( shader->ID, "texCoords" ) };
     glVertexAttribPointer( UVAttrib, 2, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
-                           (GLvoid *) 0 ); // Note that we skip over the normal vectors
+                           (GLvoid *) offsetof( Vertex, TexCoords )); // Note that we skip over the normal vectors
     glEnableVertexAttribArray( UVAttrib );
-    GLint NormalAttrib{ glGetAttribLocation( shader->ID, "normal" ) };
-    glVertexAttribPointer( NormalAttrib, 3, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
-                           (GLvoid *) 0 ); // Note that we skip over the normal vectors
-    glEnableVertexAttribArray( NormalAttrib );
+//    GLint NormalAttrib{ glGetAttribLocation( shader->ID, "normal" ) };
+//    glVertexAttribPointer( NormalAttrib, 3, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
+//                           (GLvoid *) offsetof( Vertex, Normal )); // Note that we skip over the normal vectors
+//    glEnableVertexAttribArray( NormalAttrib );
     glBindVertexArray( 0 );
 
     // set up the z-buffer
@@ -255,7 +248,7 @@ int main()
 
 
     // Enable Face Culling Report
-    glEnable( GL_CULL_FACE );
+//    glEnable( GL_CULL_FACE );
 
     // Dear IMGUI init
     // ---------------
@@ -274,26 +267,41 @@ int main()
     glGenFramebuffers( 1, &FramebufferName );
     glBindFramebuffer( GL_FRAMEBUFFER, FramebufferName );
 
-    glGenTextures( 1, &heightmapTexture );
-    glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+
 
     // Create all black texture with size 500x500 and pass it to the shader
-    std::vector<unsigned char> image( 1000 * 1000 * 3 /* bytes per pixel */ );
-    for ( int i = 0; i < 1000 * 1000 * 3; i++ )
+    for ( int i = 0; i < 500; i++ )
     {
-        image[i] = 255;
+        for ( int j = 0; j < 500; j++ )
+        {
+
+            if ( i < 100 && j < 100 )
+            {
+                image[i][j][0] = 255;
+                image[i][j][1] = 0;
+                image[i][j][2] = 0;
+            } else
+            {
+                image[i][j][0] = 255;
+                image[i][j][1] = 255;
+                image[i][j][2] = 255;
+            }
+        }
+
     }
     glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
-    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 500, 500, 0, GL_RGB, GL_UNSIGNED_BYTE, &image[0] );
+    glGenTextures( 1, &heightmapTexture );
+    glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 500, 500, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
 //    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
-    std::vector<unsigned char> pixels( 1000 * 1000 * 3 );
-    glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
+//    std::vector<unsigned char> pixels( 500 * 500 * 3 );
+//    glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
+
+
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
     glBindTexture( GL_TEXTURE_2D, 0 );
 
-    // Set "heightmapTexture" as our colour attachement #0
-    glFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, heightmapTexture, 0 );
 
     unsigned int rbo;
     glGenRenderbuffers( 1, &rbo );
@@ -320,15 +328,19 @@ int main()
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
 
+
+        processInput( window );
+
+
         glm::mat4 projection = glm::perspective( camera.Zoom, (float) SCR_WIDTH / (float) SCR_HEIGHT,
                                                  0.1f, 1000.0f );
+
         glm::mat4 model = glm::mat4( 1.0f );
         glm::mat4 view = camera.GetViewMatrix();
         glm::mat4 viewProjection = projection * view;
 
 
         processInput( window );
-
 
         //    drawSkybox();
 
@@ -339,24 +351,24 @@ int main()
         // Always check that our framebuffer is ok
         if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
             return false;
-        view = camera.GetViewMatrix();
 
         glBindVertexArray( squareVAO );
 
         // Pass the matrices to the shader
-        shader->setMat4( "view", view );
-        shader->setMat4( "projection", projection );
-        shader->setMat4( "model", model );
         shader->setFloat( "time", currentFrame );
         shader->setFloat( "waveStrength", config.waveStrength );
+        shader->setMat4( "projection", projection );
+        shader->setMat4( "view", view );
+        shader->setMat4( "model", model );
+        shader->setVec2( "mousePos", mousePos );
         GLuint texID = glGetUniformLocation( shader->ID, "heightmapTexture" );
         glUniform1i( texID, 0 );
         glActiveTexture( GL_TEXTURE0 );
         glBindTexture( GL_TEXTURE_2D, heightmapTexture );
 //        shader->setInt( "heightmapTexture", 1 );
-        glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
-        glReadBuffer( GL_COLOR_ATTACHMENT0 );
-        std::cout << std::to_string( pixels[0] ) << std::endl;
+//        glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
+//        glReadBuffer( GL_COLOR_ATTACHMENT0 );
+//        std::cout << std::to_string( pixels[0] ) << std::endl;
         glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
         glBindVertexArray( 0 );
         glBindTexture( GL_TEXTURE_2D, 0 );
@@ -507,49 +519,6 @@ unsigned int initSkyboxBuffers()
     return skyboxVAO;
 }
 
-// loads a cubemap texture from 6 individual texture faces
-// order:
-// +X (right)
-// -X (left)
-// +Y (top)
-// -Y (bottom)
-// +Z (front)
-// -Z (back)
-// -------------------------------------------------------
-unsigned int loadCubemap( vector<std::string> faces )
-{
-    unsigned int textureID;
-    glGenTextures( 1, &textureID );
-    glBindTexture( GL_TEXTURE_CUBE_MAP, textureID );
-
-    int width, height, nrComponents;
-    for ( unsigned int i = 0; i < faces.size(); i++ )
-    {
-        unsigned char *data = stbi_load( faces[i].c_str(), &width, &height, &nrComponents, 0 );
-        if ( data )
-        {
-            glTexImage2D( GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_SRGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE,
-                          data );
-            stbi_image_free( data );
-        } else
-        {
-            std::cout << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
-            stbi_image_free( data );
-        }
-    }
-    glTexParameteri( GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
-    glTexParameteri( GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-    glTexParameteri( GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-    glTexParameteri( GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-    glTexParameteri( GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE );
-
-    glGenerateMipmap( GL_TEXTURE_CUBE_MAP );
-
-    glBindTexture( GL_TEXTURE_CUBE_MAP, 0 );
-
-    return textureID;
-}
-
 
 void drawSkybox()
 {
@@ -608,6 +577,31 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
     float xoffset = (float) posX - lastX;
     float yoffset = lastY - (float) posY; // reversed since y-coordinates go from bottom to top
 
+    if ( holdingDownMouse )
+    {
+        mousePos = { posX, posY };
+        image[(int) posX % 500][(int) posY % 500][0] = 0;
+        image[(int) posX % 500][(int) posY % 500][1] = 0;
+        image[(int) posX % 500][(int) posY % 500][2] = 0;
+
+        // Update buffer with new image data
+        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 500, 500, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
+        glBindTexture( GL_TEXTURE_2D, 0 );
+
+//        // resize depth attachment
+//        gl.bindRenderbuffer( gl.RENDERBUFFER, this.renderBuffer );
+//        gl.renderbufferStorage( gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, width, height );
+//        gl.bindRenderbuffer( gl.RENDERBUFFER, null );
+//
+//        // update internal dimensions
+//        this.rttwidth = width;
+//        this.rttheight = height;
+
+
+        std::cout << "posX " << posX << " posY " << posY << std::endl;
+    }
+
     lastX = (float) posX;
     lastY = (float) posY;
 
@@ -630,6 +624,23 @@ void key_input_callback( GLFWwindow *window, int button, int other, int action, 
 
 }
 
+void mouse_button_callback( GLFWwindow *window, int button, int action, int mods )
+{
+    if ( button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS )
+    {
+        holdingDownMouse = true;
+        double xpos, ypos;
+        //getting cursor position
+        glfwGetCursorPos( window, &xpos, &ypos );
+
+    } else if ( button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE )
+    {
+
+        holdingDownMouse = false;
+
+    }
+}
+
 // glfw: whenever the mouse scroll wheel scrolls, this callback is called
 void scroll_callback( GLFWwindow *window, double xoffset, double yoffset )
 {
@@ -649,17 +660,17 @@ void framebuffer_size_callback( GLFWwindow *window, int width, int height )
 void setupPlane()
 {
     int half = dimensions / 2;
-    for ( int i = 0; i < dimensions; i++ )
+    for ( int i = 0; i < dimensions; ++i )
     {
-        for ( int j = 0; j < dimensions; j++ )
+        for ( int j = 0; j < dimensions; ++j )
         {
             Vertex vertex;
 
-            float x = j - half;
-            float y = 0;
-            float z = i - half;
+            float x = ( j - half );
+            float y = ( i - half );
+            float z = 0;
             vertex.Position = { x, y, z };
-            vertex.TexCoords = { (float) i / dimensions, (float) j / dimensions };
+            vertex.TexCoords = { (float) i / ( dimensions - 1 ), (float) j / ( dimensions - 1 ) };
             vertex.Normal = { 0, 1, 0 };
 
             vertices[numberOfVertices++] = vertex;

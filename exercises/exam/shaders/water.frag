@@ -14,15 +14,16 @@
 
 uniform sampler2D heightmapTexture;
 uniform sampler2D old_heightmapTexture;
+uniform vec2 mousePos;
 uniform float time;
 
 in vec4 FragPos;
 layout(location = 0) out vec3 color;
 in vec2 UV;
 
+
 void main()
 {
-    // float pix_size = 1.0f/grid_points;
 
     // vec4 z = a * (texture(z_tex, UV + vec2(pix_size, 0.0f))
     //           + texture(z_tex, UV - vec2(pix_size, 0.0f))
@@ -49,10 +50,8 @@ void main()
     //     z_new_neg = 0.0f;
     // }
 
-    float normX = (FragPos.x - 0) / (50 - 0);
-    float normY = (FragPos.y - 0) / (50 - 0);
-    vec2 uvv = vec2(normX, normY);
 
     // vec2 uv = vec2(FragPos.x / )
-    color = texture(heightmapTexture, uv).xyz;
+    color = texture(heightmapTexture, UV).xyz;
 }
+
