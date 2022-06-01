@@ -4,22 +4,24 @@ uniform sampler2D heightmapTexture;
 uniform sampler2D old_heightmapTexture;
 uniform vec2 mousePos;
 uniform float time;
+uniform int neighbourMultiplier;
 
 in vec4 FragPos;
 layout(location = 0) out vec3 color;
 in vec2 UV;
-const int neighbourMultiplier = 2;
+vec2 neighbourUVs[4 * 4];
+vec3 neighbourColors[4 * 4];
+vec3 averageColor = vec3(0);
+vec2 cellSize = 1.0 / vec2(720, 720);
 
-
+// report mipmaps
 void main()
 {
 
     // TODO: Get average of colors around the pixel
 
-    vec2 cellSize = 1.0 / vec2(720, 720);
 
     // Get neighbour UVs
-    vec2 neighbourUVs[4 * neighbourMultiplier];
     for (int i = 0; i < neighbourMultiplier * 4; i+=4)
     {
         neighbourUVs[i] = UV + vec2(-cellSize.x * i, -cellSize.y * i);
@@ -30,7 +32,6 @@ void main()
 
 
     // get neighbour colors
-    vec3 neighbourColors[4 * neighbourMultiplier];
     for (int i = 0; i < neighbourUVs.length(); i++)
     {
         neighbourColors[i] = texture(heightmapTexture, neighbourUVs[i]).rgb;
@@ -38,8 +39,7 @@ void main()
 
 
     // get average color
-    vec3 averageColor = vec3(0);
-    for (int i = 0; i < neighbourColors.length(); i++)
+    for (int i = 0; i < neighbourMultiplier * 4; i++)
     {
         averageColor = mix(averageColor, neighbourColors[i], 0.5);
     }

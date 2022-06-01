@@ -37,6 +37,9 @@ void mouse_button_callback( GLFWwindow *window, int button, int action, int mods
 const unsigned int SCR_WIDTH = 720;
 const unsigned int SCR_HEIGHT = 720;
 
+const unsigned int IMAGE_WIDTH = 1920;
+const unsigned int IMAGE_HEIGHT = 1920;
+
 
 // global variables used for rendering
 // -----------------------------------
@@ -92,35 +95,9 @@ struct Light
 // -------------------------------
 struct Config
 {
-    Config() : lights()
-    {
-        // Adding lights
-        //lights.emplace_back(position, color, intensity, radius);
-
-        // light 1
-        lights.emplace_back( glm::vec3( -1.0f, 1.0f, -0.5f ), glm::vec3( 1.0f, 1.0f, 1.0f ), 1.0f, 0.0f );
-
-        // light 2
-        lights.emplace_back( glm::vec3( 1.0f, 1.5f, 0.0f ), glm::vec3( 0.7f, 0.2f, 1.0f ), 1.0f, 10.0f );
-    }
-
-    // ambient light
-    glm::vec3 ambientLightColor = { 1.0f, 1.0f, 1.0f };
-    float ambientLightIntensity = 0.25f;
-
-    // material
-    glm::vec3 reflectionColor = { 0.9f, 0.9f, 0.2f };
-    float ambientReflectance = 0.75f;
-    float diffuseReflectance = 0.75f;
-    float specularReflectance = 0.5f;
-    float specularExponent = 10.0f;
-    float roughness = 0.5f;
-    float metalness = 0.0f;
-
-    std::vector<Light> lights;
-
     bool showWireframe = false;
     float waveStrength = 0.0f;
+    int neighbourMultiplier = 1;
 } config;
 
 
@@ -152,7 +129,7 @@ int GetVertexIndexAt( int xCoordinate, int yCoordinate );
 
 void updateHeightmap();
 
-GLubyte image[SCR_WIDTH][SCR_HEIGHT][3];
+GLubyte image[IMAGE_WIDTH][IMAGE_HEIGHT][3];
 
 // 2d texture containing heightmap
 GLuint heightmapTexture;
@@ -267,9 +244,9 @@ int main()
 
 
     // Create all black texture with size 500x500 and pass it to the shader
-    for ( int i = 0; i < SCR_WIDTH; i++ )
+    for ( int i = 0; i < IMAGE_WIDTH; i++ )
     {
-        for ( int j = 0; j < SCR_HEIGHT; j++ )
+        for ( int j = 0; j < IMAGE_HEIGHT; j++ )
         {
 
             if ( i < 100 && j < 100 )
@@ -289,7 +266,7 @@ int main()
     glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
     glGenTextures( 1, &heightmapTexture );
     glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
 //    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
 //    std::vector<unsigned char> pixels( 500 * 500 * 3 );
 //    glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
@@ -352,9 +329,11 @@ int main()
 
         glBindVertexArray( squareVAO );
 
+        glm::vec3 vecs[40];
+        glm::vec2 vecs2[40];
         // Pass the matrices to the shader
         shader->setFloat( "time", currentFrame );
-        shader->setFloat( "waveStrength", config.waveStrength );
+        shader->setInt( "neighbourMultiplier", config.neighbourMultiplier );
         shader->setMat4( "projection", projection );
         shader->setMat4( "view", view );
         shader->setMat4( "model", model );
@@ -442,7 +421,8 @@ void drawGui()
     {
         ImGui::Begin( "Settings" );
         ImGui::Checkbox( "Wireframe", &config.showWireframe );
-        ImGui::SliderFloat( "Wave Strength", &config.waveStrength, 0.0f, 10.0f );
+        ImGui::SliderInt( "Blur strength", &config.neighbourMultiplier, 0.0f, 10.0f );
+
         ImGui::End();
 
     }
@@ -608,8 +588,8 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         posX = glm::clamp((float) posX, min, maxX );
         posY = glm::clamp((float) posY, min, maxY );
         // Normalize values between -1 and 0, so we can cover the screen
-        float x = ( SCR_WIDTH * (((float) ( SCR_WIDTH - posX ) - min ) / ((float) maxX - min )));
-        float y = ( SCR_HEIGHT * (((float) posY - min ) / ((float) maxY - min )));
+        float x = ( IMAGE_WIDTH * (((float) ( SCR_WIDTH - posX ) - min ) / ((float) maxX - min )));
+        float y = ( IMAGE_HEIGHT * (((float) posY - min ) / ((float) maxY - min )));
         mousePos = { x, y };
 
         // TODO: Make this into a method
@@ -620,8 +600,8 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
 
         int mouseY = mousePos.y;
         int mouseX = mousePos.x;
-        int startY = (int) glm::clamp(( mouseY - ( brushSize / 2 )), 0, (int) SCR_HEIGHT );
-        int startX = (int) glm::clamp( mouseX + ( brushSize / 2 ), 0, (int) SCR_WIDTH );
+        int startY = (int) glm::clamp(( mouseY - ( brushSize / 2 )), 0, (int) IMAGE_HEIGHT );
+        int startX = (int) glm::clamp( mouseX + ( brushSize / 2 ), 0, (int) IMAGE_WIDTH );
 
 
         for ( int y = 0; y <= brushSize; y++ )
@@ -639,8 +619,8 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
                     continue;
                 }
 
-                int actualY = (int) glm::clamp( startY + y, 0, (int) SCR_HEIGHT );
-                int actualx = (int) glm::clamp( startX - x, 0, (int) SCR_WIDTH );
+                int actualY = (int) glm::clamp( startY + y, 0, (int) IMAGE_HEIGHT );
+                int actualx = (int) glm::clamp( startX - x, 0, (int) IMAGE_WIDTH );
 
                 int paintPos = actualY * ( SCR_WIDTH + 1 ) + actualx;
                 image[(int) actualx][(int) actualY][0] = 0;
@@ -659,7 +639,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
 
         // Update buffer with new image data
         glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
 //        // resize depth attachment
