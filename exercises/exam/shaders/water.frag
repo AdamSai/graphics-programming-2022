@@ -15,13 +15,13 @@ void main()
 
     // TODO: Get average of colors around the pixel
 
-
+    vec2 cellSize = 1.0 / vec2(720, 720);
     // Get neighbour UVs
     vec2 neighbourUVs[4];
-    neighbourUVs[0] = UV + vec2(-1, -1);
-    neighbourUVs[1] = UV + vec2(0, -1);
-    neighbourUVs[2] = UV + vec2(1, -1);
-    neighbourUVs[3] = UV + vec2(1, 0);
+    neighbourUVs[0] = UV + vec2(-cellSize.x, -cellSize.y);
+    neighbourUVs[1] = UV + vec2(0, -cellSize.y);
+    neighbourUVs[2] = UV + vec2(cellSize.x, -cellSize.y);
+    neighbourUVs[3] = UV + vec2(cellSize.x, 0);
 
     // get neighbour colors
     vec3 neighbourColors[4];
@@ -37,10 +37,6 @@ void main()
         averageColor += neighbourColors[i];
     }
     averageColor /= 4.0;
-
-
-
-
 
     color = averageColor;
 
