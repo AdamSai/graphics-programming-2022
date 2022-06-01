@@ -610,9 +610,47 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         float x = ( SCR_WIDTH * (((float) ( SCR_WIDTH - posX ) - min ) / ((float) maxX - min )));
         float y = ( SCR_HEIGHT * (((float) posY - min ) / ((float) maxY - min )));
         mousePos = { x, y };
-        image[(int) mousePos.x][(int) mousePos.y][0] = 0;
-        image[(int) mousePos.x][(int) mousePos.y][1] = 0;
-        image[(int) mousePos.x][(int) mousePos.y][2] = 0;
+
+        // TODO: Make this into a method
+        int brushSize = 30;
+
+        float twoFifths = ( 1.0f / 5.0f ) * brushSize;
+        float threeFifths = ( 4.0f / 5.0f ) * brushSize;
+
+        int mouseY = mousePos.y;
+        int mouseX = mousePos.x;
+        int startY = (int) glm::clamp(( mouseY - ( brushSize / 2 )), 0, (int) SCR_HEIGHT );
+        int startX = (int) glm::clamp( mouseX + ( brushSize / 2 ), 0, (int) SCR_WIDTH );
+
+
+        for ( int y = 0; y <= brushSize; y++ )
+        {
+            for ( int x = 0; x <= brushSize; x++ )
+            {
+                // Don't draw corners
+                if (
+                        x < twoFifths && y < twoFifths ||
+                        x >= threeFifths && y >= threeFifths ||
+                        x < twoFifths && y >= threeFifths ||
+                        x >= threeFifths && y < twoFifths
+                        )
+                {
+                    continue;
+                }
+
+                int actualY = (int) glm::clamp( startY + y, 0, (int) SCR_HEIGHT );
+                int actualx = (int) glm::clamp( startX - x, 0, (int) SCR_WIDTH );
+
+                int paintPos = actualY * ( SCR_WIDTH + 1 ) + actualx;
+                image[(int) actualx][(int) actualY][0] = 0;
+                image[(int) actualx][(int) actualY][1] = 0;
+                image[(int) actualx][(int) actualY][2] = 0;
+            }
+        }
+
+//        image[(int) mousePos.x][(int) mousePos.y][0] = 0;
+//        image[(int) mousePos.x][(int) mousePos.y][1] = 0;
+//        image[(int) mousePos.x][(int) mousePos.y][2] = 0;
 
         // mousePos /= 500;
         //mousePos = glm::clamp( mousePos, { 0.0f, 0.0f }, { 1.0f, 1.0f } );
