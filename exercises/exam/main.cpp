@@ -34,7 +34,7 @@ void mouse_button_callback( GLFWwindow *window, int button, int action, int mods
 
 // screen settings
 // ---------------
-const unsigned int SCR_WIDTH = 1280;
+const unsigned int SCR_WIDTH = 720;
 const unsigned int SCR_HEIGHT = 720;
 
 
@@ -42,15 +42,6 @@ const unsigned int SCR_HEIGHT = 720;
 // -----------------------------------
 Shader *shader;
 
-Model *carBodyModel;
-Model *carPaintModel;
-Model *carInteriorModel;
-Model *carLightModel;
-Model *carWindowsModel;
-Model *carWheelModel;
-Model *floorModel;
-GLuint carBodyTexture;
-GLuint carPaintTexture;
 GLuint carLightTexture;
 GLuint carWindowsTexture;
 GLuint carWheelTexture;
@@ -59,11 +50,12 @@ Camera camera( glm::vec3( 0.0f, 1.6f, 5.0f ));
 // plane setting
 // --------------
 
-constexpr GLuint dimensions = 50;
+constexpr GLuint dimensionsX = 50;
+constexpr GLuint dimensionsY = 50;
 int numberOfVertices = 0;
 int numberOfIndices = 0;
-Vertex vertices[dimensions * dimensions * 3];
-unsigned int indices[( dimensions - 1 ) * ( dimensions - 1 ) * 6];
+Vertex vertices[dimensionsX * dimensionsY * 3];
+unsigned int indices[( dimensionsX - 1 ) * ( dimensionsY - 1 ) * 6];
 
 
 Shader *skyboxShader;
@@ -160,13 +152,18 @@ int GetVertexIndexAt( int xCoordinate, int yCoordinate );
 
 void updateHeightmap();
 
-GLubyte image[500][500][3];
+GLubyte image[SCR_WIDTH][SCR_HEIGHT][3];
 
 // 2d texture containing heightmap
 GLuint heightmapTexture;
 GLuint squareVAO, VBO, EBO;
 bool holdingDownMouse = false;
 glm::vec2 mousePos = glm::vec2( -1.0f, -1.0f );
+
+void CalculateFrameRate( float lastFrame, float currentFrame );
+
+static float framesPerSecond = 0.0f;
+static int fps;
 
 int main()
 {
@@ -197,7 +194,7 @@ int main()
     glfwSetMouseButtonCallback( window, mouse_button_callback );
     glfwSetScrollCallback( window, scroll_callback );
 
-    glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_DISABLED );
+    glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_NORMAL );
 
     // glad: load all OpenGL function pointers
     // ---------------------------------------
@@ -239,9 +236,9 @@ int main()
 
     // set up the z-buffer
     // -------------------
-    glDepthRange( -1, 1 ); // make the NDC a right handed coordinate system, with the camera pointing towards -z
-    glEnable( GL_DEPTH_TEST ); // turn on z-buffer depth test
-    glDepthFunc( GL_LESS ); // draws fragments that are closer to the screen in NDC
+//    glDepthRange( -1, 1 ); // make the NDC a right handed coordinate system, with the camera pointing towards -z
+//    glEnable( GL_DEPTH_TEST ); // turn on z-buffer depth test
+//    glDepthFunc( GL_LESS ); // draws fragments that are closer to the screen in NDC
 
     // NEW! Enable SRGB framebuffer
     glEnable( GL_FRAMEBUFFER_SRGB );
@@ -270,9 +267,9 @@ int main()
 
 
     // Create all black texture with size 500x500 and pass it to the shader
-    for ( int i = 0; i < 500; i++ )
+    for ( int i = 0; i < SCR_WIDTH; i++ )
     {
-        for ( int j = 0; j < 500; j++ )
+        for ( int j = 0; j < SCR_HEIGHT; j++ )
         {
 
             if ( i < 100 && j < 100 )
@@ -292,7 +289,7 @@ int main()
     glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
     glGenTextures( 1, &heightmapTexture );
     glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 500, 500, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
 //    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
 //    std::vector<unsigned char> pixels( 500 * 500 * 3 );
 //    glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
@@ -373,10 +370,25 @@ int main()
         glBindVertexArray( 0 );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
-
+        CalculateFrameRate( deltaTime, lastFrame );
         if ( isPaused )
         {
             drawGui();
+        } else
+        {
+
+            ImGui_ImplOpenGL3_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+            {
+                ImGui::Begin( "Settings" );
+                std::string fps2 = to_string( fps ) + " FPS";
+                ImGui::Text( fps2.c_str());
+                ImGui::End();
+
+            }
+            ImGui::Render();
+            ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData());
         }
         if ( config.showWireframe )
         {
@@ -386,6 +398,9 @@ int main()
             glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 
         }
+        glBindFramebuffer( GL_FRAMEBUFFER, FramebufferName );
+
+
         // Render to the screen
         glBindFramebuffer( GL_FRAMEBUFFER, 0 );
         glfwSwapBuffers( window );
@@ -398,18 +413,24 @@ int main()
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
-    delete carBodyModel;
-    delete carPaintModel;
-    delete carInteriorModel;
-    delete carLightModel;
-    delete carWindowsModel;
-    delete carWheelModel;
-    delete floorModel;
-
     // glfw: terminate, clearing all previously allocated GLFW resources.
     // ------------------------------------------------------------------
     glfwTerminate();
     return 0;
+}
+
+void CalculateFrameRate( float lastFrame, float currentFrame )
+{
+    // calculate frames per second
+    static int frameCount = 0;
+    static float lastTime = 0.0f;
+    frameCount++;
+    if ( currentFrame - lastTime >= 1.0f )
+    {
+        fps = frameCount;
+        frameCount = 0;
+        lastTime = currentFrame;
+    }
 }
 
 void drawGui()
@@ -426,6 +447,7 @@ void drawGui()
     }
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData());
+
     glEnable( GL_FRAMEBUFFER_SRGB );
 }
 
@@ -447,7 +469,7 @@ void setupForwardAdditionalPass()
     glBlendFunc( GL_ONE, GL_ONE );
 
     // Set depth test to GL_EQUAL (only the fragments that match the depth buffer are rendered)
-    glDepthFunc( GL_EQUAL );
+//    glDepthFunc( GL_EQUAL );
 
 
 }
@@ -523,8 +545,8 @@ unsigned int initSkyboxBuffers()
 void drawSkybox()
 {
     // render skybox
-    glDepthFunc(
-            GL_LEQUAL );  // change depth function so depth test passes when values are equal to depth buffer's content
+//    glDepthFunc(
+//            GL_LEQUAL );  // change depth function so depth test passes when values are equal to depth buffer's content
     skyboxShader->use();
     glm::mat4 projection = glm::perspective( glm::radians( camera.Zoom ), (float) SCR_WIDTH / (float) SCR_HEIGHT, 0.1f,
                                              100.0f );
@@ -579,14 +601,26 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
 
     if ( holdingDownMouse )
     {
-        mousePos = { posX, posY };
-        image[(int) posX % 500][(int) posY % 500][0] = 0;
-        image[(int) posX % 500][(int) posY % 500][1] = 0;
-        image[(int) posX % 500][(int) posY % 500][2] = 0;
+        float min = 0;
+        float maxX = SCR_WIDTH;
+        float maxY = SCR_HEIGHT;
+        posX = glm::clamp((float) posX, min, maxX );
+        posY = glm::clamp((float) posY, min, maxY );
+        // Normalize values between -1 and 0, so we can cover the screen
+        float x = ( SCR_WIDTH * (((float) ( SCR_WIDTH - posX ) - min ) / ((float) maxX - min )));
+        float y = ( SCR_HEIGHT * (((float) posY - min ) / ((float) maxY - min )));
+        mousePos = { x, y };
+        image[(int) mousePos.x][(int) mousePos.y][0] = 0;
+        image[(int) mousePos.x][(int) mousePos.y][1] = 0;
+        image[(int) mousePos.x][(int) mousePos.y][2] = 0;
+
+        // mousePos /= 500;
+        //mousePos = glm::clamp( mousePos, { 0.0f, 0.0f }, { 1.0f, 1.0f } );
+// f
 
         // Update buffer with new image data
         glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, 500, 500, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
 //        // resize depth attachment
@@ -599,7 +633,8 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
 //        this.rttheight = height;
 
 
-        std::cout << "posX " << posX << " posY " << posY << std::endl;
+        std::cout << "posX " << mousePos.x << " posY " << mousePos.y << std::endl;
+//        std::cout << "posX " << posX << " posY " << posY << std::endl;
     }
 
     lastX = (float) posX;
@@ -609,7 +644,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         return;
 
     // we use the handy camera class from LearnOpenGL to handle our camera
-    camera.ProcessMouseMovement( xoffset, yoffset );
+//    camera.ProcessMouseMovement( xoffset, yoffset );
 }
 
 
@@ -618,8 +653,8 @@ void key_input_callback( GLFWwindow *window, int button, int other, int action, 
     // controls pause mode
     if ( glfwGetKey( window, GLFW_KEY_SPACE ) == GLFW_PRESS )
     {
-        isPaused = !isPaused;
-        glfwSetInputMode( window, GLFW_CURSOR, isPaused ? GLFW_CURSOR_NORMAL : GLFW_CURSOR_DISABLED );
+        isPaused = !isPaused;;
+        glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_NORMAL );
     }
 
 }
@@ -659,50 +694,63 @@ void framebuffer_size_callback( GLFWwindow *window, int width, int height )
 // https://stackoverflow.com/questions/65199704/drawing-a-plane-with-vertex-buffer-object
 void setupPlane()
 {
-    int half = dimensions / 2;
-    for ( int i = 0; i < dimensions; ++i )
+    int halfX = dimensionsX / 2;
+    int halfY = dimensionsY / 2;
+    float maxX = 1 - halfX;
+    float maxY = 1 - halfY;
+    float minX = dimensionsX - 1 - halfX;
+    float minY = dimensionsY - 1 - halfY;
+    for ( int i = 0; i < dimensionsX; ++i )
     {
-        for ( int j = 0; j < dimensions; ++j )
+        for ( int j = 0; j < dimensionsY; ++j )
         {
             Vertex vertex;
 
-            float x = ( j - half );
-            float y = ( i - half );
+            float tempX = ( j - halfX );
+            float tempY = ( i - halfY );
+            // Normalize values between -1 and 0 so we can cover the screen
+            float x = ( 2 * (( tempX - minX ) / ( maxX - minX ))) - 1;
+            float y = ( 2 * (( tempY - minY ) / ( maxY - minY ))) - 1;
             float z = 0;
+
+//            float x = ( SCR_WIDTH * (((float) ( SCR_WIDTH - posX ) - min ) / ((float) maxX - min )));
+//            float y = ( SCR_HEIGHT * (((float) posY - min ) / ((float) maxY - min )));
             vertex.Position = { x, y, z };
-            vertex.TexCoords = { (float) i / ( dimensions - 1 ), (float) j / ( dimensions - 1 ) };
+            vertex.TexCoords = { (float) i / ( dimensionsX - 1 ), (float) j / ( dimensionsY - 1 ) };
             vertex.Normal = { 0, 1, 0 };
 
             vertices[numberOfVertices++] = vertex;
-            std::cout << "UV: " << std::to_string( vertex.TexCoords.x ) << " " << std::to_string( vertex.TexCoords.y )
+//            std::cout << "UV: " << std::to_string( vertex.TexCoords.x ) << " " << std::to_string( vertex.TexCoords.y )
+//                      << std::endl;
+            std::cout << "XY: " << std::to_string( x ) << " " << std::to_string( y )
                       << std::endl;
 
         }
     }
 
-    for ( int row = 0; row < dimensions - 1; ++row )
+    for ( int row = 0; row < dimensionsX - 1; ++row )
     {
-        for ( int col = 0; col < dimensions - 1; ++col )
+        for ( int col = 0; col < dimensionsY - 1; ++col )
         {
             // d = row
             // w = col
 
 
-            indices[numberOfIndices++] = dimensions * row + col;
-            indices[numberOfIndices++] = dimensions * row + col + dimensions;
-            indices[numberOfIndices++] = dimensions * row + col + dimensions + 1;
+            indices[numberOfIndices++] = dimensionsX * row + col;
+            indices[numberOfIndices++] = dimensionsX * row + col + dimensionsY;
+            indices[numberOfIndices++] = dimensionsX * row + col + dimensionsY + 1;
 
-            indices[numberOfIndices++] = dimensions * row + col;
-            indices[numberOfIndices++] = dimensions * row + col + dimensions + 1;
-            indices[numberOfIndices++] = dimensions * row + col + 1;
+            indices[numberOfIndices++] = dimensionsX * row + col;
+            indices[numberOfIndices++] = dimensionsX * row + col + dimensionsY + 1;
+            indices[numberOfIndices++] = dimensionsX * row + col + 1;
 
         }
     }
 
     // Save neighbour info
-    for ( int row = 0; row < dimensions - 1; ++row )
+    for ( int row = 0; row < dimensionsX - 1; ++row )
     {
-        for ( int col = 0; col < dimensions - 1; ++col )
+        for ( int col = 0; col < dimensionsY - 1; ++col )
         {
             int left = GetVertexIndexAt( row - 1, col );
             int right = GetVertexIndexAt( row + 1, col );
@@ -719,7 +767,7 @@ void setupPlane()
 
 int GetVertexIndexAt( int xCoordinate, int yCoordinate )
 {
-    return yCoordinate * ( dimensions + 1 ) + xCoordinate;
+    return yCoordinate * ( dimensionsX + 1 ) + xCoordinate;
 }
 
 void updateHeightmap()
