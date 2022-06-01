@@ -98,6 +98,7 @@ struct Config
     bool showWireframe = false;
     int brushSize = 30;
     bool blur = false;
+    float brushColor[3] = { 0.0f, 0.0f, 0.0f };
 } config;
 
 
@@ -134,7 +135,8 @@ GLubyte image[IMAGE_WIDTH][IMAGE_HEIGHT][4];
 // 2d texture containing heightmap
 GLuint heightmapTexture;
 GLuint squareVAO, VBO, EBO;
-bool holdingDownMouse = false;
+bool cursorIsHeldDown = false;
+bool cursorIsDisabled = false;
 glm::vec2 mousePos = glm::vec2( -1.0f, -1.0f );
 
 void CalculateFrameRate( float lastFrame, float currentFrame );
@@ -419,11 +421,22 @@ void drawGui()
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
     {
-        ImGui::Begin( "Settings" );
+        //check if imgui wants to capture mouse
+        ImGuiIO &io = ImGui::GetIO();
+        if ( io.WantCaptureMouse )
+        {
+            std::cout << "Mouse captured" << std::endl;
+            cursorIsDisabled = true;
+        } else
+        {
+            std::cout << "Mouse not captured" << std::endl;
+            cursorIsDisabled = false;
+        }
+        ImGui::Begin( "Settings", NULL, ImGuiWindowFlags_NoCollapse );
         ImGui::Checkbox( "Wireframe", &config.showWireframe );
         ImGui::Checkbox( "Blur", &config.blur );
         ImGui::SliderInt( "Brush size", &config.brushSize, 0, 100 );
-
+        ImGui::ColorPicker3( "Brush color", config.brushColor );
         ImGui::End();
 
     }
@@ -581,7 +594,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
     float xoffset = (float) posX - lastX;
     float yoffset = lastY - (float) posY; // reversed since y-coordinates go from bottom to top
 
-    if ( holdingDownMouse )
+    if ( cursorIsHeldDown )
     {
         float min = 0;
         float maxX = SCR_WIDTH;
@@ -623,9 +636,9 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
                 int actualx = (int) glm::clamp( startX - x, 0, (int) IMAGE_WIDTH );
 
                 int paintPos = actualY * ( SCR_WIDTH + 1 ) + actualx;
-                image[(int) actualx][(int) actualY][0] = 0;
-                image[(int) actualx][(int) actualY][1] = 0;
-                image[(int) actualx][(int) actualY][2] = 0;
+                image[(int) actualx][(int) actualY][0] = config.brushColor[0] * 255;
+                image[(int) actualx][(int) actualY][1] = config.brushColor[1] * 255;
+                image[(int) actualx][(int) actualY][2] = config.brushColor[2] * 255;
                 image[(int) actualx][(int) actualY][3] = 255;
             }
         }
@@ -681,9 +694,9 @@ void key_input_callback( GLFWwindow *window, int button, int other, int action, 
 
 void mouse_button_callback( GLFWwindow *window, int button, int action, int mods )
 {
-    if ( button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS )
+    if ( button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS && !cursorIsDisabled )
     {
-        holdingDownMouse = true;
+        cursorIsHeldDown = true;
         double xpos, ypos;
         //getting cursor position
         glfwGetCursorPos( window, &xpos, &ypos );
@@ -691,7 +704,7 @@ void mouse_button_callback( GLFWwindow *window, int button, int action, int mods
     } else if ( button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE )
     {
 
-        holdingDownMouse = false;
+        cursorIsHeldDown = false;
 
     }
 }
