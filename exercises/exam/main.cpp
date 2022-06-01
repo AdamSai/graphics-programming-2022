@@ -96,8 +96,8 @@ struct Light
 struct Config
 {
     bool showWireframe = false;
-    float waveStrength = 0.0f;
-    int neighbourMultiplier = 1;
+    int brushSize = 30;
+    bool blur = false;
 } config;
 
 
@@ -129,7 +129,7 @@ int GetVertexIndexAt( int xCoordinate, int yCoordinate );
 
 void updateHeightmap();
 
-GLubyte image[IMAGE_WIDTH][IMAGE_HEIGHT][3];
+GLubyte image[IMAGE_WIDTH][IMAGE_HEIGHT][4];
 
 // 2d texture containing heightmap
 GLuint heightmapTexture;
@@ -254,11 +254,13 @@ int main()
                 image[i][j][0] = 255;
                 image[i][j][1] = 0;
                 image[i][j][2] = 0;
+                image[i][j][3] = 255;
             } else
             {
                 image[i][j][0] = 255;
                 image[i][j][1] = 255;
                 image[i][j][2] = 255;
+                image[i][j][3] = 1;
             }
         }
 
@@ -266,7 +268,7 @@ int main()
     glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
     glGenTextures( 1, &heightmapTexture );
     glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
+    glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, image );
 //    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
 //    std::vector<unsigned char> pixels( 500 * 500 * 3 );
 //    glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
@@ -329,11 +331,9 @@ int main()
 
         glBindVertexArray( squareVAO );
 
-        glm::vec3 vecs[40];
-        glm::vec2 vecs2[40];
         // Pass the matrices to the shader
         shader->setFloat( "time", currentFrame );
-        shader->setInt( "neighbourMultiplier", config.neighbourMultiplier );
+        shader->setBool( "blur", config.blur );
         shader->setMat4( "projection", projection );
         shader->setMat4( "view", view );
         shader->setMat4( "model", model );
@@ -421,7 +421,8 @@ void drawGui()
     {
         ImGui::Begin( "Settings" );
         ImGui::Checkbox( "Wireframe", &config.showWireframe );
-        ImGui::SliderInt( "Blur strength", &config.neighbourMultiplier, 0.0f, 10.0f );
+        ImGui::Checkbox( "Blur", &config.blur );
+        ImGui::SliderInt( "Brush size", &config.brushSize, 0, 100 );
 
         ImGui::End();
 
@@ -593,20 +594,19 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         mousePos = { x, y };
 
         // TODO: Make this into a method
-        int brushSize = 30;
 
-        float twoFifths = ( 1.0f / 5.0f ) * brushSize;
-        float threeFifths = ( 4.0f / 5.0f ) * brushSize;
+        float twoFifths = ( 1.0f / 5.0f ) * config.brushSize;
+        float threeFifths = ( 4.0f / 5.0f ) * config.brushSize;
 
         int mouseY = mousePos.y;
         int mouseX = mousePos.x;
-        int startY = (int) glm::clamp(( mouseY - ( brushSize / 2 )), 0, (int) IMAGE_HEIGHT );
-        int startX = (int) glm::clamp( mouseX + ( brushSize / 2 ), 0, (int) IMAGE_WIDTH );
+        int startY = (int) glm::clamp(( mouseY - ( config.brushSize / 2 )), 0, (int) IMAGE_HEIGHT );
+        int startX = (int) glm::clamp( mouseX + ( config.brushSize / 2 ), 0, (int) IMAGE_WIDTH );
 
 
-        for ( int y = 0; y <= brushSize; y++ )
+        for ( int y = 0; y <= config.brushSize; y++ )
         {
-            for ( int x = 0; x <= brushSize; x++ )
+            for ( int x = 0; x <= config.brushSize; x++ )
             {
                 // Don't draw corners
                 if (
@@ -626,6 +626,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
                 image[(int) actualx][(int) actualY][0] = 0;
                 image[(int) actualx][(int) actualY][1] = 0;
                 image[(int) actualx][(int) actualY][2] = 0;
+                image[(int) actualx][(int) actualY][3] = 255;
             }
         }
 
@@ -639,7 +640,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
 
         // Update buffer with new image data
         glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGB, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE, image );
+        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, image );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
 //        // resize depth attachment
