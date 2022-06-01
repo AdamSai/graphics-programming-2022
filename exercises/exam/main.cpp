@@ -53,8 +53,8 @@ Camera camera( glm::vec3( 0.0f, 1.6f, 5.0f ));
 // plane setting
 // --------------
 
-constexpr GLuint dimensionsX = 50;
-constexpr GLuint dimensionsY = 50;
+constexpr GLuint dimensionsX = 100;
+constexpr GLuint dimensionsY = 100;
 int numberOfVertices = 0;
 int numberOfIndices = 0;
 Vertex vertices[dimensionsX * dimensionsY * 3];
@@ -351,6 +351,7 @@ int main()
         glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
         glBindVertexArray( 0 );
         glBindTexture( GL_TEXTURE_2D, 0 );
+        
 
         CalculateFrameRate( deltaTime, lastFrame );
         if ( isPaused )
@@ -425,11 +426,9 @@ void drawGui()
         ImGuiIO &io = ImGui::GetIO();
         if ( io.WantCaptureMouse )
         {
-            std::cout << "Mouse captured" << std::endl;
             cursorIsDisabled = true;
         } else
         {
-            std::cout << "Mouse not captured" << std::endl;
             cursorIsDisabled = false;
         }
         ImGui::Begin( "Settings", NULL, ImGuiWindowFlags_NoCollapse );
