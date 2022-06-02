@@ -22,7 +22,7 @@ void main()
 
     float max = waveStrength;
     float min = -waveStrength / 4;
-    gl_Position =   vec4(position, 1.0f);
+    gl_Position = vec4(position, 1.0f);
 
     UV = texCoords;
 
