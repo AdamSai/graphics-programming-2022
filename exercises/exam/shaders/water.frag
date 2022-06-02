@@ -17,48 +17,38 @@ void main()
 
     // TODO: Get average of colors around the pixel
 
-    vec2 cellSize = 1.0 / vec2(1920, 1920);
+    float offset = 1.0 / 1920;
 
     if (blur == true)
     {
-        // Get neighbour UVs
-        vec2 neighbourUVs[8 * neighbourMultiplier];
-        for (int i = 0; i < neighbourMultiplier * 8; i+=8)
+        vec2 offsets[9] = vec2[](
+        vec2(-offset, offset), // top-left
+        vec2(0.0f, offset), // top-center
+        vec2(offset, offset), // top-right
+        vec2(-offset, 0.0f), // center-left
+        vec2(0.0f, 0.0f), // center-center
+        vec2(offset, 0.0f), // center-right
+        vec2(-offset, -offset), // bottom-left
+        vec2(0.0f, -offset), // bottom-center
+        vec2(offset, -offset)// bottom-right
+        );
+
+        float kernel[9] = float[](
+        1.0 / 16, 2.0 / 16, 1.0 / 16,
+        2.0 / 16, 4.0 / 16, 2.0 / 16,
+        1.0 / 16, 2.0 / 16, 1.0 / 16
+        );
+
+        vec3 sampleTex[9];
+        for (int i = 0; i < 9; i++)
         {
-            int multiplier = i + 1;
-            neighbourUVs[i] = UV + vec2(0, cellSize.y * multiplier);
-            neighbourUVs[i + 1] = UV + vec2(0, -cellSize.y * multiplier);
-            neighbourUVs[i + 2] = UV + vec2(cellSize.x * multiplier, 0);
-            neighbourUVs[i + 3] = UV + vec2(-cellSize.x * multiplier, 0);
-            neighbourUVs[i + 4] = UV + vec2(cellSize.x * multiplier, cellSize.y * multiplier);
-            neighbourUVs[i + 5] = UV + vec2(-cellSize.x * multiplier, cellSize.y * multiplier);
-            neighbourUVs[i + 6] = UV + vec2(cellSize.x * multiplier, -cellSize.y * multiplier);
-            neighbourUVs[i + 7] = UV + vec2(-cellSize.x * multiplier, -cellSize.y * multiplier);
-
+            sampleTex[i] = vec3(texture(heightmapTexture, UV.st + offsets[i]));
         }
+        vec3 col = vec3(0.0);
+        for (int i = 0; i < 9; i++)
+        col += sampleTex[i] * kernel[i];
 
-        // get neighbour colors
-        vec4 neighbourColors[8 * neighbourMultiplier];
-        for (int i = 0; i < neighbourUVs.length(); i++)
-        {
-
-            neighbourColors[i] = texture(heightmapTexture, neighbourUVs[i]);
-        }
-
-
-        // get average color
-        vec4 averageColor = vec4(1, 1, 1, 1);
-        for (int i = 0; i < neighbourColors.length(); i++)
-        {
-            if (neighbourColors[i].a > 0.9f)
-            averageColor = mix(averageColor, neighbourColors[i], 0.5);
-
-        }
-        //    averageColor /= neighbourUVs.length();
-        if (averageColor != vec4(0))
-        color = averageColor;
-        else
-        color = texture(heightmapTexture, UV);
+        color = vec4(col, 1.0);
 
     }
     else
