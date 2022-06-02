@@ -47,6 +47,34 @@ Shader *shader;
 
 Camera camera( glm::vec3( 0.0f, 1.6f, 5.0f ));
 
+struct Color
+{
+    GLubyte r;
+    GLubyte g;
+    GLubyte b;
+    GLubyte a;
+
+    Color( GLubyte r, GLubyte g, GLubyte b, GLubyte a )
+    {
+        this->r = r;
+        this->g = g;
+        this->b = b;
+        this->a = a;
+    }
+
+    Color( GLubyte r, GLubyte g, GLubyte b )
+    {
+        this->r = r;
+        this->g = g;
+        this->b = b;
+    }
+
+    // Override equality operator
+    bool operator==( const Color &other ) const
+    {
+        return r == other.r && g == other.g && b == other.b && a == other.a;
+    }
+};
 // plane setting
 // --------------
 
@@ -86,6 +114,7 @@ void drawGui();
 // Water shader setting report
 void setupPlane();
 
+void FloodFill( int xPos, int yPos, Color targetColor, Color replacementColor );
 
 GLubyte image[IMAGE_WIDTH][IMAGE_HEIGHT][4];
 
@@ -95,6 +124,7 @@ GLuint squareVAO, VBO, EBO;
 bool cursorIsHeldDown = false;
 bool cursorIsDisabled = false;
 glm::vec2 mousePos = glm::vec2( -1.0f, -1.0f );
+glm::vec2 clampedMousePos = glm::vec2( 0.0f, 0.0f );
 
 void CalculateFrameRate( float lastFrame, float currentFrame );
 
@@ -116,7 +146,7 @@ int main()
 
     // glfw window creation
     // --------------------
-    GLFWwindow *window = glfwCreateWindow( SCR_WIDTH, SCR_HEIGHT, "Water Water Water", NULL, NULL );
+    GLFWwindow *window = glfwCreateWindow( SCR_WIDTH, SCR_HEIGHT, "Adam.paint", NULL, NULL );
     if ( window == NULL )
     {
         std::cout << "Failed to create GLFW window" << std::endl;
@@ -196,9 +226,9 @@ int main()
     // Create heightmap texture
     // -------------------------
     // The framebuffer, which regroups 0, 1, or more textures, and 0 or 1 depth buffer.
-    GLuint FramebufferName;
-    glGenFramebuffers( 1, &FramebufferName );
-    glBindFramebuffer( GL_FRAMEBUFFER, FramebufferName );
+    GLuint fbo;
+    glGenFramebuffers( 1, &fbo );
+    glBindFramebuffer( GL_FRAMEBUFFER, fbo );
 
 
 
@@ -208,19 +238,10 @@ int main()
         for ( int j = 0; j < IMAGE_HEIGHT; j++ )
         {
 
-            if ( i < 100 && j < 100 )
-            {
-                image[i][j][0] = 255;
-                image[i][j][1] = 0;
-                image[i][j][2] = 0;
-                image[i][j][3] = 255;
-            } else
-            {
-                image[i][j][0] = 255;
-                image[i][j][1] = 255;
-                image[i][j][2] = 255;
-                image[i][j][3] = 1;
-            }
+            image[i][j][0] = 255;
+            image[i][j][1] = 255;
+            image[i][j][2] = 255;
+            image[i][j][3] = 1;
         }
 
     }
@@ -311,25 +332,10 @@ int main()
 
 
         CalculateFrameRate( deltaTime, lastFrame );
-        if ( isPaused )
-        {
-            drawGui();
-        } else
-        {
 
-            ImGui_ImplOpenGL3_NewFrame();
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
-            {
-                ImGui::Begin( "Settings" );
-                std::string fps2 = to_string( fps ) + " FPS";
-                ImGui::Text( fps2.c_str());
-                ImGui::End();
+        drawGui();
 
-            }
-            ImGui::Render();
-            ImGui_ImplOpenGL3_RenderDrawData( ImGui::GetDrawData());
-        }
+
         if ( config.showWireframe )
         {
             glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
@@ -338,7 +344,7 @@ int main()
             glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 
         }
-        glBindFramebuffer( GL_FRAMEBUFFER, FramebufferName );
+        glBindFramebuffer( GL_FRAMEBUFFER, fbo );
 
 
         // Render to the screen
@@ -358,6 +364,142 @@ int main()
     glfwTerminate();
     return 0;
 }
+
+// queue data structure of vec2
+class Queue
+{
+    std::vector<glm::vec2> data;
+    int front, back;
+    int size;
+    int capacity;
+
+public:
+    Queue( int capacity )
+    {
+        this->capacity = capacity;
+        data = std::vector<glm::vec2>( capacity );
+        front = 0;
+        back = 0;
+        size = 0;
+    }
+
+    void enqueue( glm::vec2 item )
+    {
+        if ( size == capacity )
+        {
+            std::cout << "Queue is full" << std::endl;
+            return;
+        }
+        data[back] = item;
+        back = ( back + 1 ) % capacity;
+        size++;
+    }
+
+    glm::vec2 dequeue()
+    {
+        if ( size == 0 )
+        {
+            std::cout << "Queue is empty" << std::endl;
+            return glm::vec2( 0, 0 );
+        }
+        glm::vec2 item = data[front];
+        front = ( front + 1 ) % capacity;
+        size--;
+        return item;
+    }
+
+    glm::vec2 peek()
+    {
+        if ( size == 0 )
+        {
+            std::cout << "Queue is empty" << std::endl;
+            return glm::vec2( 0, 0 );
+        }
+        return data[front];
+    }
+
+    bool isEmpty()
+    {
+        return size == 0;
+    }
+
+    bool isFull()
+    {
+        return size == capacity;
+    }
+
+    // clear queue
+    void clear()
+    {
+        front = 0;
+        back = 0;
+        size = 0;
+    }
+};
+
+Queue *Q = new Queue( IMAGE_WIDTH * IMAGE_HEIGHT );
+
+Color GetImageColorFromUBytes( GLubyte r, GLubyte g, GLubyte b )
+{
+    return Color( r, g, b );
+}
+
+
+void FloodFill( int xPos, int yPos, Color targetColor, Color replacementColor )
+{
+    if ( xPos < 0 || xPos >= IMAGE_WIDTH || yPos < 0 || yPos >= IMAGE_HEIGHT )
+        return;
+    delete Q;
+    Q = new Queue( IMAGE_WIDTH * IMAGE_HEIGHT * 8 );
+    Q->enqueue( glm::vec2( yPos, xPos ));
+    while ( !Q->isEmpty())
+    {
+        glm::vec2 N = Q->dequeue();
+
+        if ( N.x < 0 || N.x >= IMAGE_WIDTH || N.y < 0 || N.y >= IMAGE_HEIGHT )
+            continue;
+
+        int r = image[(int) N.x][(int) N.y][0];
+        int g = image[(int) N.x][(int) N.y][1];
+        int b = image[(int) N.x][(int) N.y][2];
+
+        Color imgColor = Color( r, g, b );
+        if ( imgColor == targetColor )
+        {
+            image[(int) N.x][(int) N.y][0] = replacementColor.r;
+            image[(int) N.x][(int) N.y][1] = replacementColor.g;
+            image[(int) N.x][(int) N.y][2] = replacementColor.b;
+            image[(int) N.x][(int) N.y][3] = 255;
+
+
+            Color right = GetImageColorFromUBytes( image[(int) N.x + 1][(int) N.y][0],
+                                                   image[(int) N.x + 1][(int) N.y][1],
+                                                   image[(int) N.x + 1][(int) N.y][2] );
+            Color left = GetImageColorFromUBytes( image[(int) N.x - 1][(int) N.y][0],
+                                                  image[(int) N.x - 1][(int) N.y][1],
+                                                  image[(int) N.x - 1][(int) N.y][2] );
+            Color up = GetImageColorFromUBytes( image[(int) N.x][(int) N.y + 1][0],
+                                                image[(int) N.x][(int) N.y + 1][1],
+                                                image[(int) N.x][(int) N.y + 1][2] );
+            Color down = GetImageColorFromUBytes( image[(int) N.x][(int) N.y - 1][0],
+                                                  image[(int) N.x][(int) N.y - 1][1],
+                                                  image[(int) N.x][(int) N.y - 1][2] );
+
+            // enqueue 4 neighbors
+            if ( right == targetColor )
+                Q->enqueue( glm::vec2( N.x + 1, N.y ));
+            if ( left == targetColor )
+                Q->enqueue( glm::vec2( N.x - 1, N.y ));
+            if ( up == targetColor )
+                Q->enqueue( glm::vec2( N.x, N.y + 1 ));
+            if ( down == targetColor )
+                Q->enqueue( glm::vec2( N.x, N.y - 1 ));
+
+
+        }
+    }
+}
+
 
 void CalculateFrameRate( float lastFrame, float currentFrame )
 {
@@ -389,6 +531,8 @@ void drawGui()
             cursorIsDisabled = false;
         }
         ImGui::Begin( "Settings", NULL, ImGuiWindowFlags_NoCollapse );
+        std::string fps2 = to_string( fps ) + " FPS";
+        ImGui::Text( fps2.c_str());
         ImGui::Checkbox( "Wireframe", &config.showWireframe );
         ImGui::Checkbox( "Blur", &config.blur );
         ImGui::SliderInt( "Brush size", &config.brushSize, 0, 100 );
@@ -426,73 +570,6 @@ void setupForwardAdditionalPass()
 }
 
 
-// init the VAO of the skybox
-// --------------------------
-unsigned int initSkyboxBuffers()
-{
-    // triangles forming the six faces of a cube
-    // note that the camera is placed inside of the cube, so the winding order
-    // is selected to make the triangles visible from the inside
-    float skyboxVertices[108]{
-            // positions
-            -1.0f, 1.0f, -1.0f,
-            -1.0f, -1.0f, -1.0f,
-            1.0f, -1.0f, -1.0f,
-            1.0f, -1.0f, -1.0f,
-            1.0f, 1.0f, -1.0f,
-            -1.0f, 1.0f, -1.0f,
-
-            -1.0f, -1.0f, 1.0f,
-            -1.0f, -1.0f, -1.0f,
-            -1.0f, 1.0f, -1.0f,
-            -1.0f, 1.0f, -1.0f,
-            -1.0f, 1.0f, 1.0f,
-            -1.0f, -1.0f, 1.0f,
-
-            1.0f, -1.0f, -1.0f,
-            1.0f, -1.0f, 1.0f,
-            1.0f, 1.0f, 1.0f,
-            1.0f, 1.0f, 1.0f,
-            1.0f, 1.0f, -1.0f,
-            1.0f, -1.0f, -1.0f,
-
-            -1.0f, -1.0f, 1.0f,
-            -1.0f, 1.0f, 1.0f,
-            1.0f, 1.0f, 1.0f,
-            1.0f, 1.0f, 1.0f,
-            1.0f, -1.0f, 1.0f,
-            -1.0f, -1.0f, 1.0f,
-
-            -1.0f, 1.0f, -1.0f,
-            1.0f, 1.0f, -1.0f,
-            1.0f, 1.0f, 1.0f,
-            1.0f, 1.0f, 1.0f,
-            -1.0f, 1.0f, 1.0f,
-            -1.0f, 1.0f, -1.0f,
-
-            -1.0f, -1.0f, -1.0f,
-            -1.0f, -1.0f, 1.0f,
-            1.0f, -1.0f, -1.0f,
-            1.0f, -1.0f, -1.0f,
-            -1.0f, -1.0f, 1.0f,
-            1.0f, -1.0f, 1.0f
-    };
-
-    unsigned int skyboxVAO, skyboxVBO;
-    glGenVertexArrays( 1, &skyboxVAO );
-    glGenBuffers( 1, &skyboxVBO );
-
-    glBindVertexArray( skyboxVAO );
-    glBindBuffer( GL_ARRAY_BUFFER, skyboxVBO );
-
-    glBufferData( GL_ARRAY_BUFFER, sizeof( skyboxVertices ), &skyboxVertices, GL_STATIC_DRAW );
-    glEnableVertexAttribArray( 0 );
-    glVertexAttribPointer( 0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof( float ), (void *) 0 );
-
-    return skyboxVAO;
-}
-
-
 void processInput( GLFWwindow *window )
 {
     if ( glfwGetKey( window, GLFW_KEY_ESCAPE ) == GLFW_PRESS )
@@ -527,25 +604,27 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
     float xoffset = (float) posX - lastX;
     float yoffset = lastY - (float) posY; // reversed since y-coordinates go from bottom to top
 
+
+    float min = 0;
+    float maxX = SCR_WIDTH;
+    float maxY = SCR_HEIGHT;
+    posX = glm::clamp((float) posX, min, maxX );
+    posY = glm::clamp((float) posY, min, maxY );
+    // Normalize values between 0 and screen width/height
+    float x = ( IMAGE_WIDTH * (((float) ( posX ) - min ) / ((float) maxX - min )));
+    float y = ( IMAGE_HEIGHT * (( SCR_HEIGHT - (float) posY - min ) / ((float) maxY - min )));
+    clampedMousePos = { x, y };
     if ( cursorIsHeldDown )
     {
-        float min = 0;
-        float maxX = SCR_WIDTH;
-        float maxY = SCR_HEIGHT;
-        posX = glm::clamp((float) posX, min, maxX );
-        posY = glm::clamp((float) posY, min, maxY );
-        // Normalize values between -1 and 0, so we can cover the screen
-        float x = ( IMAGE_WIDTH * (((float) ( posX ) - min ) / ((float) maxX - min )));
-        float y = ( IMAGE_HEIGHT * (((float) SCR_HEIGHT - posY - min ) / ((float) maxY - min )));
-        mousePos = { x, y };
+
 
         // TODO: Make this into a method
 
         float twoFifths = ( 1.0f / 5.0f ) * config.brushSize;
         float threeFifths = ( 4.0f / 5.0f ) * config.brushSize;
 
-        int mouseY = mousePos.y;
-        int mouseX = mousePos.x;
+        int mouseY = clampedMousePos.y;
+        int mouseX = clampedMousePos.x;
         int startY = (int) glm::clamp(( mouseY - ( config.brushSize / 2 )), 0, (int) IMAGE_HEIGHT );
         int startX = (int) glm::clamp( mouseX + ( config.brushSize / 2 ), 0, (int) IMAGE_WIDTH );
 
@@ -554,6 +633,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         {
             for ( int x = 0; x <= config.brushSize; x++ )
             {
+
                 // Don't draw corners
                 if (
                         x < twoFifths && y < twoFifths ||
@@ -562,9 +642,13 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
                         x >= threeFifths && y < twoFifths
                         )
                 {
+                    // "3d" cube
+//                    image[(int) actualY][(int) actualx][0] = config.brushColor[0] / 2 * 255;
+//                    image[(int) actualY][(int) actualx][1] = config.brushColor[1] / 2 * 255;
+//                    image[(int) actualY][(int) actualx][2] = config.brushColor[2] / 2 * 255;
+//                    image[(int) actualY][(int) actualx][3] = 255;
                     continue;
                 }
-
                 int actualY = (int) glm::clamp( startY + y, 0, (int) IMAGE_HEIGHT );
                 int actualx = (int) glm::clamp( startX - x, 0, (int) IMAGE_WIDTH );
 
@@ -580,27 +664,15 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
 //        image[(int) mousePos.x][(int) mousePos.y][1] = 0;
 //        image[(int) mousePos.x][(int) mousePos.y][2] = 0;
 
-        // mousePos /= 500;
-        //mousePos = glm::clamp( mousePos, { 0.0f, 0.0f }, { 1.0f, 1.0f } );
-// f
 
         // Update buffer with new image data
         glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-        glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, image );
+        glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
+                         image );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
-//        // resize depth attachment
-//        gl.bindRenderbuffer( gl.RENDERBUFFER, this.renderBuffer );
-//        gl.renderbufferStorage( gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, width, height );
-//        gl.bindRenderbuffer( gl.RENDERBUFFER, null );
-//
-//        // update internal dimensions
-//        this.rttwidth = width;
-//        this.rttheight = height;
 
-
-        std::cout << "posX " << mousePos.x << " posY " << mousePos.y << std::endl;
-//        std::cout << "posX " << posX << " posY " << posY << std::endl;
+        std::cout << "posX " << clampedMousePos.x << " posY " << clampedMousePos.y << std::endl;
     }
 
     lastX = (float) posX;
@@ -639,6 +711,33 @@ void mouse_button_callback( GLFWwindow *window, int button, int action, int mods
 
         cursorIsHeldDown = false;
 
+    }
+    if ( button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS )
+    {
+
+        // create replacement color from brushColor
+        Color replacementColor = { static_cast<GLubyte>(config.brushColor[0] * 255.f),
+                                   static_cast<GLubyte>(config.brushColor[1] * 255.f),
+                                   static_cast<GLubyte>(config.brushColor[2] * 255.f) };
+
+        Color targetColor = { image[(int) clampedMousePos.y][(int) clampedMousePos.x][0],
+                              image[(int) clampedMousePos.y][(int) clampedMousePos.x][1],
+                              image[(int) clampedMousePos.y][(int) clampedMousePos.x][2] };
+
+        std::cout << "Flood filling at: " << (int) clampedMousePos.x << ", " << (int) clampedMousePos.y
+                  << " replacement color: " << std::to_string( replacementColor.r ) << ", "
+                  << std::to_string( replacementColor.g ) << ", "
+                  << std::to_string( replacementColor.b ) <<
+                  " target color: " << std::to_string( targetColor.r ) << ", " << std::to_string( targetColor.g )
+                  << ", " << std::to_string( targetColor.b ) << std::endl;
+
+        if ( targetColor == replacementColor )
+            return;
+        FloodFill( clampedMousePos.x, clampedMousePos.y, targetColor, replacementColor );
+        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+        glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
+                         image );
+        glBindTexture( GL_TEXTURE_2D, 0 );
     }
 }
 
