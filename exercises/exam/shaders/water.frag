@@ -1,41 +1,45 @@
 #version 330 core
 
 uniform sampler2D heightmapTexture;
-uniform sampler2D old_heightmapTexture;
-uniform vec2 mousePos;
-uniform float time;
 uniform bool blur;
-
-in vec4 FragPos;
-layout(location = 0) out vec4 color;
+layout(location = 0) out vec3 color;
 in vec2 UV;
-const int neighbourMultiplier = 2;
-
 
 void main()
 {
 
     // TODO: Get average of colors around the pixel
-
-    float offset = 1.0 / 1920;
-
-    if (blur == true)
+    if (blur)
     {
-        // get average color of neighbours
-        vec4 avgColor = vec4(0.0, 0.0, 0.0, 0.0);
-        for (int i = -1; i <= 1; i++)
+
+        vec2 cellSize = 1.0 / vec2(720, 720);
+        // Get neighbour UVs
+        vec2 neighbourUVs[4];
+        neighbourUVs[0] = UV + vec2(-cellSize.x, -cellSize.y);
+        neighbourUVs[1] = UV + vec2(0, -cellSize.y);
+        neighbourUVs[2] = UV + vec2(cellSize.x, -cellSize.y);
+        neighbourUVs[3] = UV + vec2(cellSize.x, 0);
+
+        // get neighbour colors
+        vec3 neighbourColors[4];
+        neighbourColors[0] = texture(heightmapTexture, neighbourUVs[0]).rgb;
+        neighbourColors[1] = texture(heightmapTexture, neighbourUVs[1]).rgb;
+        neighbourColors[2] = texture(heightmapTexture, neighbourUVs[2]).rgb;
+        neighbourColors[3] = texture(heightmapTexture, neighbourUVs[3]).rgb;
+
+        // get average color
+        vec3 averageColor = vec3(0);
+        for (int i = 0; i < 4; i++)
         {
-            for (int j = -1; j <= 1; j++)
-            {
-                avgColor += texture(heightmapTexture, UV + vec2(i * offset, j * offset));
-            }
+            averageColor += neighbourColors[i];
         }
+        averageColor /= 4.0;
 
-        color = avgColor;
-
+        color = averageColor;
     }
     else
-    color = texture(heightmapTexture, UV);
-
-
+    {
+        color = texture(heightmapTexture, UV).rgb;
+    }
 }
+

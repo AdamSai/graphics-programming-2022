@@ -295,21 +295,12 @@ int main()
         glBindVertexArray( squareVAO );
 
         // Pass the matrices to the shader
-        shader->setFloat( "time", currentFrame );
         shader->setBool( "blur", config.blur );
-        shader->setMat4( "projection", projection );
-        shader->setMat4( "view", view );
-        shader->setMat4( "model", model );
-        shader->setVec2( "mousePos", mousePos );
-        GLuint texID = glGetUniformLocation( shader->ID, "heightmapTexture" );
-        glUniform1i( texID, 0 );
-        glActiveTexture( GL_TEXTURE0 );
+//        GLuint texID = glGetUniformLocation( shader->ID, "heightmapTexture" );
+//        glUniform1i( texID, 0 );
         glBindTexture( GL_TEXTURE_2D, heightmapTexture );
-//        shader->setInt( "heightmapTexture", 1 );
-//        glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
-//        glReadBuffer( GL_COLOR_ATTACHMENT0 );
-//        std::cout << std::to_string( pixels[0] ) << std::endl;
         glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
+
         glBindVertexArray( 0 );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
@@ -600,8 +591,6 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
     {
 
 
-        // TODO: Make this into a method
-
         float twoFifths = ( 1.0f / 5.0f ) * config.brushSize;
         float threeFifths = ( 4.0f / 5.0f ) * config.brushSize;
 
@@ -615,7 +604,6 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         {
             for ( int x = 0; x <= config.brushSize; x++ )
             {
-
                 // Don't draw corners
                 if (
                         x < twoFifths && y < twoFifths ||
@@ -624,17 +612,11 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
                         x >= threeFifths && y < twoFifths
                         )
                 {
-                    // "3d" cube
-//                    image[(int) actualY][(int) actualx][0] = config.brushColor[0] / 2 * 255;
-//                    image[(int) actualY][(int) actualx][1] = config.brushColor[1] / 2 * 255;
-//                    image[(int) actualY][(int) actualx][2] = config.brushColor[2] / 2 * 255;
-//                    image[(int) actualY][(int) actualx][3] = 255;
                     continue;
                 }
                 int actualY = (int) glm::clamp( startY + y, 0, (int) IMAGE_HEIGHT );
                 int actualx = (int) glm::clamp( startX - x, 0, (int) IMAGE_WIDTH );
 
-                int paintPos = actualY * ( SCR_WIDTH + 1 ) + actualx;
                 image[(int) actualY][(int) actualx][0] = config.brushColor[0] * 255;
                 image[(int) actualY][(int) actualx][1] = config.brushColor[1] * 255;
                 image[(int) actualY][(int) actualx][2] = config.brushColor[2] * 255;
@@ -642,19 +624,12 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
             }
         }
 
-//        image[(int) mousePos.x][(int) mousePos.y][0] = 0;
-//        image[(int) mousePos.x][(int) mousePos.y][1] = 0;
-//        image[(int) mousePos.x][(int) mousePos.y][2] = 0;
-
-
         // Update buffer with new image data
         glBindTexture( GL_TEXTURE_2D, heightmapTexture );
         glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
                          image );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
-
-        std::cout << "posX " << clampedMousePos.x << " posY " << clampedMousePos.y << std::endl;
     }
 
     lastX = (float) posX;
