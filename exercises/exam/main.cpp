@@ -100,6 +100,7 @@ struct Config
     int brushSize = 30;
     bool blur = false;
     float brushColor[3] = { 0.0f, 0.0f, 0.0f };
+    int blurType = 0;
 } config;
 
 
@@ -170,7 +171,9 @@ int main()
         return -1;
     }
 
-    shader = new Shader( "shaders/water.vert", "shaders/water.frag" );
+    shader = new Shader( "shaders/painting.vert", "shaders/painting.frag" );
+    auto blurShader = new Shader( "shaders/painting.vert", "shaders/Blur.frag" );
+    auto gaussianShader = new Shader( "shaders/painting.vert", "shaders/Gaussian.frag" );
 
     // init plane
     setupPlane();
@@ -285,7 +288,12 @@ int main()
         //    drawSkybox();
 
 
-        shader->use();
+        if ( config.blurType == 0 )
+            shader->use();
+        else if ( config.blurType == 1 )
+            gaussianShader->use();
+        else if ( config.blurType == 2 )
+            blurShader->use();
 
 
         // Always check that our framebuffer is ok
@@ -506,10 +514,37 @@ void drawGui()
         ImGui::Begin( "Settings", NULL, ImGuiWindowFlags_NoCollapse );
         std::string fps2 = to_string( fps ) + " FPS";
         ImGui::Text( fps2.c_str());
+        ImGui::Separator();
         ImGui::Checkbox( "Wireframe", &config.showWireframe );
-        ImGui::Checkbox( "Blur", &config.blur );
+        // imgui selectable Normal, Gaussian Blur, Custom Blur
+        ImGui::Separator();
+        ImGui::BeginGroup();
+
+        ImGui::Text( "Blur Type" );
+        if ( ImGui::Selectable( "Normal",
+                                config.blurType == 0 ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None ))
+        {
+            config.blurType = 0;
+        }
+        if ( ImGui::Selectable( "Gaussian Blur",
+                                config.blurType == 1 ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None ))
+        {
+            config.blurType = 1;
+        }
+        if ( ImGui::Selectable( "Custom Blur",
+                                config.blurType == 2 ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None ))
+        {
+            config.blurType = 2;
+        }
+
+        ImGui::Separator();
+        ImGui::EndGroup();
+        ImGui::BeginGroup();
+
         ImGui::SliderInt( "Brush size", &config.brushSize, 0, 100 );
         ImGui::ColorPicker3( "Brush color", config.brushColor );
+        ImGui::EndGroup();
+
         ImGui::End();
 
     }

@@ -182,7 +182,7 @@ int main()
 
     // load the shaders and the 3D models
     // ----------------------------------
-    pbr_shading = new Shader( "shaders/water.vert", "shaders/water.frag" );
+    pbr_shading = new Shader( "shaders/painting.vert", "shaders/painting.frag" );
     shader = pbr_shading;
 
     carPaintModel = new Model( "car/Paint_LOD0.obj" );
