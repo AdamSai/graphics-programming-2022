@@ -188,16 +188,12 @@ int main()
     glBufferData( GL_ELEMENT_ARRAY_BUFFER, numberOfIndices * sizeof( GLuint ), &indices, GL_STATIC_DRAW );
     GLint PosAttrib{ glGetAttribLocation( shader->ID, "position" ) };
     glVertexAttribPointer( PosAttrib, 3, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
-                           (GLvoid *) 0 ); // Note that we skip over the normal vectors
+                           (GLvoid *) 0 );
     glEnableVertexAttribArray( PosAttrib );
     GLint UVAttrib{ glGetAttribLocation( shader->ID, "texCoords" ) };
     glVertexAttribPointer( UVAttrib, 2, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
-                           (GLvoid *) offsetof( Vertex, TexCoords )); // Note that we skip over the normal vectors
+                           (GLvoid *) offsetof( Vertex, TexCoords ));
     glEnableVertexAttribArray( UVAttrib );
-//    GLint NormalAttrib{ glGetAttribLocation( shader->ID, "normal" ) };
-//    glVertexAttribPointer( NormalAttrib, 3, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
-//                           (GLvoid *) offsetof( Vertex, Normal )); // Note that we skip over the normal vectors
-//    glEnableVertexAttribArray( NormalAttrib );
     glBindVertexArray( 0 );
 
     // set up the z-buffer
@@ -226,10 +222,6 @@ int main()
     // Create heightmap texture
     // -------------------------
     // The framebuffer, which regroups 0, 1, or more textures, and 0 or 1 depth buffer.
-    GLuint fbo;
-    glGenFramebuffers( 1, &fbo );
-    glBindFramebuffer( GL_FRAMEBUFFER, fbo );
-
 
 
     // Create all black texture with size 500x500 and pass it to the shader
@@ -260,15 +252,6 @@ int main()
     glBindTexture( GL_TEXTURE_2D, 0 );
 
 
-    unsigned int rbo;
-    glGenRenderbuffers( 1, &rbo );
-    glBindRenderbuffer( GL_RENDERBUFFER, rbo );
-    glRenderbufferStorage( GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 800, 600 );
-    glBindRenderbuffer( GL_RENDERBUFFER, 0 );
-    glFramebufferRenderbuffer( GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo );
-    if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
-        std::cout << "ERROR::FRAMEBUFFER:: Framebuffer is not complete!" << std::endl;
-    glBindFramebuffer( GL_FRAMEBUFFER, 0 );
     // Always check that our framebuffer is ok
     if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
         return false;
@@ -344,7 +327,6 @@ int main()
             glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
 
         }
-        glBindFramebuffer( GL_FRAMEBUFFER, fbo );
 
 
         // Render to the screen
