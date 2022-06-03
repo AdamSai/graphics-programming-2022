@@ -1,21 +1,14 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
-
 #include <vector>
-#include <gl/GL.h>
-
-// NEW! as our scene gets more complex, we start using more helper classes
-//  I recommend that you read through the camera.h and model.h files to see if you can map the the previous
-//  lessons to this implementation
 #include "shader.h"
-#include "camera.h"
-#include "model.h"
-
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
-#include "glm/gtc/type_ptr.hpp"
+#include "Queue.h"
+#include "Vertex.h"
+#include "Color.h"
 
 // glfw and input functions
 // ------------------------
@@ -40,41 +33,18 @@ const unsigned int SCR_HEIGHT = 720;
 const unsigned int IMAGE_WIDTH = 1920;
 const unsigned int IMAGE_HEIGHT = 1920;
 
+GLubyte image[IMAGE_WIDTH][IMAGE_HEIGHT][4];
 
 // global variables used for rendering
 // -----------------------------------
 Shader *shader;
+Shader *blurShader;
+Shader *gaussianShader;
 
-Camera camera( glm::vec3( 0.0f, 1.6f, 5.0f ));
+// Data structure to compare colors
 
-struct Color
-{
-    GLubyte r;
-    GLubyte g;
-    GLubyte b;
-    GLubyte a;
 
-    Color( GLubyte r, GLubyte g, GLubyte b, GLubyte a )
-    {
-        this->r = r;
-        this->g = g;
-        this->b = b;
-        this->a = a;
-    }
 
-    Color( GLubyte r, GLubyte g, GLubyte b )
-    {
-        this->r = r;
-        this->g = g;
-        this->b = b;
-    }
-
-    // Override equality operator
-    bool operator==( const Color &other ) const
-    {
-        return r == other.r && g == other.g && b == other.b && a == other.a;
-    }
-};
 // plane setting
 // --------------
 
@@ -89,7 +59,6 @@ unsigned int indices[6];
 float lastX = (float) SCR_WIDTH / 2.0;
 float lastY = (float) SCR_HEIGHT / 2.0;
 float deltaTime;
-bool isPaused = false; // stop camera movement when GUI is open
 
 
 // structure to hold config info
@@ -98,7 +67,6 @@ struct Config
 {
     bool showWireframe = false;
     int brushSize = 30;
-    bool blur = false;
     float brushColor[3] = { 0.0f, 0.0f, 0.0f };
     int blurType = 0;
 } config;
@@ -107,27 +75,21 @@ struct Config
 // function declarations
 // ---------------------
 
-void setupForwardAdditionalPass();
-
-
 void drawGui();
 
-// Water shader setting report
 void setupPlane();
 
 void FloodFill( int xPos, int yPos, Color targetColor, Color replacementColor );
 
-GLubyte image[IMAGE_WIDTH][IMAGE_HEIGHT][4];
+void CalculateFrameRate( float lastFrame, float currentFrame );
 
-// 2d texture containing heightmap
-GLuint heightmapTexture;
+// 2d texture
+GLuint canvas;
 GLuint squareVAO, VBO, EBO;
 bool cursorIsHeldDown = false;
 bool cursorIsDisabled = false;
-glm::vec2 mousePos = glm::vec2( -1.0f, -1.0f );
-glm::vec2 clampedMousePos = glm::vec2( 0.0f, 0.0f );
-
-void CalculateFrameRate( float lastFrame, float currentFrame );
+glm::vec2 mousePos;
+glm::vec2 clampedMousePos;
 
 static float framesPerSecond = 0.0f;
 static int fps;
@@ -172,13 +134,14 @@ int main()
     }
 
     shader = new Shader( "shaders/painting.vert", "shaders/painting.frag" );
-    auto blurShader = new Shader( "shaders/painting.vert", "shaders/Blur.frag" );
-    auto gaussianShader = new Shader( "shaders/painting.vert", "shaders/Gaussian.frag" );
+    blurShader = new Shader( "shaders/painting.vert", "shaders/Blur.frag" );
+    gaussianShader = new Shader( "shaders/painting.vert", "shaders/Gaussian.frag" );
 
     // init plane
     setupPlane();
 
 
+    // Setup buffers
     glGenVertexArrays( 1, &squareVAO );
     glBindVertexArray( squareVAO );
 
@@ -189,6 +152,8 @@ int main()
     glGenBuffers( 1, &EBO );
     glBindBuffer( GL_ELEMENT_ARRAY_BUFFER, EBO );
     glBufferData( GL_ELEMENT_ARRAY_BUFFER, numberOfIndices * sizeof( GLuint ), &indices, GL_STATIC_DRAW );
+
+    // Setup attributes
     GLint PosAttrib{ glGetAttribLocation( shader->ID, "position" ) };
     glVertexAttribPointer( PosAttrib, 3, GL_FLOAT, GL_FALSE, sizeof( Vertex ),
                            (GLvoid *) 0 );
@@ -199,18 +164,13 @@ int main()
     glEnableVertexAttribArray( UVAttrib );
     glBindVertexArray( 0 );
 
-    // set up the z-buffer
-    // -------------------
-//    glDepthRange( -1, 1 ); // make the NDC a right handed coordinate system, with the camera pointing towards -z
-//    glEnable( GL_DEPTH_TEST ); // turn on z-buffer depth test
-//    glDepthFunc( GL_LESS ); // draws fragments that are closer to the screen in NDC
 
     // NEW! Enable SRGB framebuffer
-    glEnable( GL_FRAMEBUFFER_SRGB );
 
 
-    // Enable Face Culling Report
-//    glEnable( GL_CULL_FACE );
+    // Enable Face Culling
+    glEnable( GL_CULL_FACE );
+    glCullFace( GL_FRONT );
 
     // Dear IMGUI init
     // ---------------
@@ -222,12 +182,12 @@ int main()
     ImGui_ImplGlfw_InitForOpenGL( window, true );
     ImGui_ImplOpenGL3_Init( "#version 330 core" );
 
-    // Create heightmap texture
+    // Create texture
     // -------------------------
     // The framebuffer, which regroups 0, 1, or more textures, and 0 or 1 depth buffer.
 
 
-    // Create all black texture with size 500x500 and pass it to the shader
+    // Initialize texture to be all white
     for ( int i = 0; i < IMAGE_WIDTH; i++ )
     {
         for ( int j = 0; j < IMAGE_HEIGHT; j++ )
@@ -236,28 +196,21 @@ int main()
             image[i][j][0] = 255;
             image[i][j][1] = 255;
             image[i][j][2] = 255;
-            image[i][j][3] = 1;
+            image[i][j][3] = 255;
         }
 
     }
+    // Setup texture
     glPixelStorei( GL_UNPACK_ALIGNMENT, 1 );
-    glGenTextures( 1, &heightmapTexture );
-    glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+    glGenTextures( 1, &canvas );
+    glBindTexture( GL_TEXTURE_2D, canvas );
     glTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA, IMAGE_WIDTH, IMAGE_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE, image );
-//    glTexImage2D( GL_TEXTURE_2D, 0, GL_R32F, 500, 500, 0, GL_RED, GL_FLOAT, 0 );
-//    std::vector<unsigned char> pixels( 500 * 500 * 3 );
-//    glGetTexImage( GL_TEXTURE_2D, 0, GL_RGB, GL_UNSIGNED_BYTE, &pixels[0] );
-
 
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST );
     glTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST );
 
     glBindTexture( GL_TEXTURE_2D, 0 );
 
-
-    // Always check that our framebuffer is ok
-    if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
-        return false;
 
     // render loop
     // -----------
@@ -270,23 +223,7 @@ int main()
         float currentFrame = (float) glfwGetTime();
         deltaTime = currentFrame - lastFrame;
         lastFrame = currentFrame;
-
-
         processInput( window );
-
-
-        glm::mat4 projection = glm::perspective( camera.Zoom, (float) SCR_WIDTH / (float) SCR_HEIGHT,
-                                                 0.1f, 1000.0f );
-
-        glm::mat4 model = glm::mat4( 1.0f );
-        glm::mat4 view = camera.GetViewMatrix();
-        glm::mat4 viewProjection = projection * view;
-
-
-        processInput( window );
-
-        //    drawSkybox();
-
 
         if ( config.blurType == 0 )
             shader->use();
@@ -295,26 +232,13 @@ int main()
         else if ( config.blurType == 2 )
             blurShader->use();
 
-
-        // Always check that our framebuffer is ok
-        if ( glCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
-            return false;
-
         glBindVertexArray( squareVAO );
-
-        // Pass the matrices to the shader
-        shader->setBool( "blur", config.blur );
-//        GLuint texID = glGetUniformLocation( shader->ID, "heightmapTexture" );
-//        glUniform1i( texID, 0 );
-        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+        glBindTexture( GL_TEXTURE_2D, canvas );
         glDrawElements( GL_TRIANGLES, numberOfIndices, GL_UNSIGNED_INT, 0 );
-
         glBindVertexArray( 0 );
         glBindTexture( GL_TEXTURE_2D, 0 );
 
-
         CalculateFrameRate( deltaTime, lastFrame );
-
         drawGui();
 
 
@@ -324,7 +248,6 @@ int main()
         } else
         {
             glPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
-
         }
 
 
@@ -346,77 +269,8 @@ int main()
     return 0;
 }
 
-// queue data structure of vec2
-class Queue
-{
-    std::vector<glm::vec2> data;
-    int front, back;
-    int size;
-    int capacity;
+// queue data structure of vec2 for Flood Fill
 
-public:
-    Queue( int capacity )
-    {
-        this->capacity = capacity;
-        data = std::vector<glm::vec2>( capacity );
-        front = 0;
-        back = 0;
-        size = 0;
-    }
-
-    void enqueue( glm::vec2 item )
-    {
-        if ( size == capacity )
-        {
-            std::cout << "Queue is full" << std::endl;
-            return;
-        }
-        data[back] = item;
-        back = ( back + 1 ) % capacity;
-        size++;
-    }
-
-    glm::vec2 dequeue()
-    {
-        if ( size == 0 )
-        {
-            std::cout << "Queue is empty" << std::endl;
-            return glm::vec2( 0, 0 );
-        }
-        glm::vec2 item = data[front];
-        front = ( front + 1 ) % capacity;
-        size--;
-        return item;
-    }
-
-    glm::vec2 peek()
-    {
-        if ( size == 0 )
-        {
-            std::cout << "Queue is empty" << std::endl;
-            return glm::vec2( 0, 0 );
-        }
-        return data[front];
-    }
-
-    bool isEmpty()
-    {
-        return size == 0;
-    }
-
-    bool isFull()
-    {
-        return size == capacity;
-    }
-
-    // clear queue
-    void clear()
-    {
-        front = 0;
-        back = 0;
-        size = 0;
-    }
-};
 
 Queue *Q = new Queue( IMAGE_WIDTH * IMAGE_HEIGHT );
 
@@ -428,23 +282,30 @@ Color GetImageColorFromUBytes( GLubyte r, GLubyte g, GLubyte b )
 
 void FloodFill( int xPos, int yPos, Color targetColor, Color replacementColor )
 {
+    // Only fill if inside the bounds
     if ( xPos < 0 || xPos >= IMAGE_WIDTH || yPos < 0 || yPos >= IMAGE_HEIGHT )
         return;
+
+    // Remove old queue
     delete Q;
+
     Q = new Queue( IMAGE_WIDTH * IMAGE_HEIGHT * 8 );
+    // queue current pixel and start filling
     Q->enqueue( glm::vec2( yPos, xPos ));
     while ( !Q->isEmpty())
     {
+        // Remove first pixel and check if inside bound
         glm::vec2 N = Q->dequeue();
 
         if ( N.x < 0 || N.x >= IMAGE_WIDTH || N.y < 0 || N.y >= IMAGE_HEIGHT )
             continue;
 
+        // Compare colors of current pixel and target color. If they are the same, fill the pixel with replacement color
         int r = image[(int) N.x][(int) N.y][0];
         int g = image[(int) N.x][(int) N.y][1];
         int b = image[(int) N.x][(int) N.y][2];
-
         Color imgColor = Color( r, g, b );
+
         if ( imgColor == targetColor )
         {
             image[(int) N.x][(int) N.y][0] = replacementColor.r;
@@ -453,27 +314,24 @@ void FloodFill( int xPos, int yPos, Color targetColor, Color replacementColor )
             image[(int) N.x][(int) N.y][3] = 255;
 
 
-            Color right = GetImageColorFromUBytes( image[(int) N.x + 1][(int) N.y][0],
-                                                   image[(int) N.x + 1][(int) N.y][1],
-                                                   image[(int) N.x + 1][(int) N.y][2] );
-            Color left = GetImageColorFromUBytes( image[(int) N.x - 1][(int) N.y][0],
-                                                  image[(int) N.x - 1][(int) N.y][1],
-                                                  image[(int) N.x - 1][(int) N.y][2] );
-            Color up = GetImageColorFromUBytes( image[(int) N.x][(int) N.y + 1][0],
-                                                image[(int) N.x][(int) N.y + 1][1],
-                                                image[(int) N.x][(int) N.y + 1][2] );
-            Color down = GetImageColorFromUBytes( image[(int) N.x][(int) N.y - 1][0],
-                                                  image[(int) N.x][(int) N.y - 1][1],
-                                                  image[(int) N.x][(int) N.y - 1][2] );
+            auto right = image[(int) N.x + 1][(int) N.y];
+            auto left = image[(int) N.x - 1][(int) N.y];
+            auto up = image[(int) N.x][(int) N.y + 1];
+            auto down = image[(int) N.x][(int) N.y - 1];
+            // Get color values from neighboring pixels
+            Color rightColor = GetImageColorFromUBytes( right[0], right[1], right[2] );
+            Color leftColor = GetImageColorFromUBytes( left[0], left[1], left[2] );
+            Color upColor = GetImageColorFromUBytes( up[0], up[1], up[2] );
+            Color downColor = GetImageColorFromUBytes( down[0], down[1], down[2] );
 
-            // enqueue 4 neighbors
-            if ( right == targetColor )
+            // enqueue neighbours that have the same color as target color
+            if ( rightColor == targetColor )
                 Q->enqueue( glm::vec2( N.x + 1, N.y ));
-            if ( left == targetColor )
+            if ( leftColor == targetColor )
                 Q->enqueue( glm::vec2( N.x - 1, N.y ));
-            if ( up == targetColor )
+            if ( upColor == targetColor )
                 Q->enqueue( glm::vec2( N.x, N.y + 1 ));
-            if ( down == targetColor )
+            if ( downColor == targetColor )
                 Q->enqueue( glm::vec2( N.x, N.y - 1 ));
 
 
@@ -504,22 +362,16 @@ void drawGui()
     {
         //check if imgui wants to capture mouse
         ImGuiIO &io = ImGui::GetIO();
-        if ( io.WantCaptureMouse )
-        {
-            cursorIsDisabled = true;
-        } else
-        {
-            cursorIsDisabled = false;
-        }
+        cursorIsDisabled = io.WantCaptureMouse;
+
         ImGui::Begin( "Settings", NULL, ImGuiWindowFlags_NoCollapse );
-        std::string fps2 = to_string( fps ) + " FPS";
+        std::string fps2 = std::to_string( fps ) + " FPS";
         ImGui::Text( fps2.c_str());
         ImGui::Separator();
         ImGui::Checkbox( "Wireframe", &config.showWireframe );
-        // imgui selectable Normal, Gaussian Blur, Custom Blur
+
         ImGui::Separator();
         ImGui::BeginGroup();
-
         ImGui::Text( "Blur Type" );
         if ( ImGui::Selectable( "Normal",
                                 config.blurType == 0 ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None ))
@@ -539,8 +391,8 @@ void drawGui()
 
         ImGui::Separator();
         ImGui::EndGroup();
-        ImGui::BeginGroup();
 
+        ImGui::BeginGroup();
         ImGui::SliderInt( "Brush size", &config.brushSize, 0, 100 );
         ImGui::ColorPicker3( "Brush color", config.brushColor );
         ImGui::EndGroup();
@@ -554,53 +406,16 @@ void drawGui()
     glEnable( GL_FRAMEBUFFER_SRGB );
 }
 
-void setAmbientUniforms( glm::vec3 ambientLightColor )
-{
-    // ambient uniforms
-    shader->setVec4( "ambientLightColor",
-                     glm::vec4( ambientLightColor, glm::length( ambientLightColor ) > 0.0f ? 1.0f : 0.0f ));
-}
-
-
-void setupForwardAdditionalPass()
-{
-    // Remove ambient from additional passes
-    setAmbientUniforms( glm::vec3( 0.0f ));
-
-    // Enable additive blending
-    glEnable( GL_BLEND );
-    glBlendFunc( GL_ONE, GL_ONE );
-
-    // Set depth test to GL_EQUAL (only the fragments that match the depth buffer are rendered)
-//    glDepthFunc( GL_EQUAL );
-
-
-}
-
 
 void processInput( GLFWwindow *window )
 {
     if ( glfwGetKey( window, GLFW_KEY_ESCAPE ) == GLFW_PRESS )
         glfwSetWindowShouldClose( window, true );
-
-    if ( isPaused )
-        return;
-
-    // movement commands
-    if ( glfwGetKey( window, GLFW_KEY_W ) == GLFW_PRESS )
-        camera.ProcessKeyboard( FORWARD, deltaTime );
-    if ( glfwGetKey( window, GLFW_KEY_S ) == GLFW_PRESS )
-        camera.ProcessKeyboard( BACKWARD, deltaTime );
-    if ( glfwGetKey( window, GLFW_KEY_A ) == GLFW_PRESS )
-        camera.ProcessKeyboard( LEFT, deltaTime );
-    if ( glfwGetKey( window, GLFW_KEY_D ) == GLFW_PRESS )
-        camera.ProcessKeyboard( RIGHT, deltaTime );
 }
 
 void cursor_input_callback( GLFWwindow *window, double posX, double posY )
 {
 
-    // camera rotation
     static bool firstMouse = true;
     if ( firstMouse )
     {
@@ -609,23 +424,19 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         firstMouse = false;
     }
 
-    float xoffset = (float) posX - lastX;
-    float yoffset = lastY - (float) posY; // reversed since y-coordinates go from bottom to top
-
-
+    // Clamp the mouse positions to be inside the window
     float min = 0;
     float maxX = SCR_WIDTH;
     float maxY = SCR_HEIGHT;
-    posX = glm::clamp((float) posX, min, maxX );
-    posY = glm::clamp((float) posY, min, maxY );
-    // Normalize values between 0 and screen width/height
+    posX = glm::clamp((float) posX, min, maxX - 1 );
+    posY = glm::clamp((float) posY, min, maxY - 1 );
+
+    // Normalize values between 0 and image width/height
     float x = ( IMAGE_WIDTH * (((float) ( posX ) - min ) / ((float) maxX - min )));
     float y = ( IMAGE_HEIGHT * (( SCR_HEIGHT - (float) posY - min ) / ((float) maxY - min )));
     clampedMousePos = { x, y };
     if ( cursorIsHeldDown )
     {
-
-
         float twoFifths = ( 1.0f / 5.0f ) * config.brushSize;
         float threeFifths = ( 4.0f / 5.0f ) * config.brushSize;
 
@@ -635,6 +446,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         int startX = (int) glm::clamp( mouseX + ( config.brushSize / 2 ), 0, (int) IMAGE_WIDTH );
 
 
+        // Draw "circle" shape
         for ( int y = 0; y <= config.brushSize; y++ )
         {
             for ( int x = 0; x <= config.brushSize; x++ )
@@ -660,7 +472,7 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
         }
 
         // Update buffer with new image data
-        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+        glBindTexture( GL_TEXTURE_2D, canvas );
         glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
                          image );
         glBindTexture( GL_TEXTURE_2D, 0 );
@@ -670,11 +482,6 @@ void cursor_input_callback( GLFWwindow *window, double posX, double posY )
     lastX = (float) posX;
     lastY = (float) posY;
 
-    if ( isPaused )
-        return;
-
-    // we use the handy camera class from LearnOpenGL to handle our camera
-//    camera.ProcessMouseMovement( xoffset, yoffset );
 }
 
 
@@ -683,7 +490,6 @@ void key_input_callback( GLFWwindow *window, int button, int other, int action, 
     // controls pause mode
     if ( glfwGetKey( window, GLFW_KEY_SPACE ) == GLFW_PRESS )
     {
-        isPaused = !isPaused;;
         glfwSetInputMode( window, GLFW_CURSOR, GLFW_CURSOR_NORMAL );
     }
 
@@ -700,13 +506,11 @@ void mouse_button_callback( GLFWwindow *window, int button, int action, int mods
 
     } else if ( button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE )
     {
-
         cursorIsHeldDown = false;
-
     }
+    // Flood fill
     if ( button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS )
     {
-
         // create replacement color from brushColor
         Color replacementColor = { static_cast<GLubyte>(config.brushColor[0] * 255.f),
                                    static_cast<GLubyte>(config.brushColor[1] * 255.f),
@@ -723,10 +527,14 @@ void mouse_button_callback( GLFWwindow *window, int button, int action, int mods
                   " target color: " << std::to_string( targetColor.r ) << ", " << std::to_string( targetColor.g )
                   << ", " << std::to_string( targetColor.b ) << std::endl;
 
+        // Don't flood fill if the target color is the same as the replacement color
         if ( targetColor == replacementColor )
             return;
+
         FloodFill( clampedMousePos.x, clampedMousePos.y, targetColor, replacementColor );
-        glBindTexture( GL_TEXTURE_2D, heightmapTexture );
+
+        // Update the texture
+        glBindTexture( GL_TEXTURE_2D, canvas );
         glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, IMAGE_WIDTH, IMAGE_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
                          image );
         glBindTexture( GL_TEXTURE_2D, 0 );
@@ -736,7 +544,6 @@ void mouse_button_callback( GLFWwindow *window, int button, int action, int mods
 // glfw: whenever the mouse scroll wheel scrolls, this callback is called
 void scroll_callback( GLFWwindow *window, double xoffset, double yoffset )
 {
-    camera.ProcessMouseScroll((float) yoffset );
 }
 
 
@@ -749,7 +556,6 @@ void framebuffer_size_callback( GLFWwindow *window, int width, int height )
     glViewport( 0, 0, width, height );
 }
 
-// https://stackoverflow.com/questions/65199704/drawing-a-plane-with-vertex-buffer-object
 void setupPlane()
 {
     Vertex vertex1;

@@ -1,12 +1,11 @@
 #version 330 core
+layout(location = 0) out vec4 color;
 
-uniform sampler2D heightmapTexture;
-uniform bool blur;
-layout(location = 0) out vec3 color;
+uniform sampler2D canvas;
 in vec2 UV;
 
 void main()
 {
-    color = texture(heightmapTexture, UV).rgb;
+    color = texture(canvas, UV);
 }
 

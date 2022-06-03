@@ -1,7 +1,7 @@
 #version 330
-
-uniform sampler2D heightmapTexture;
 layout(location = 0) out vec4 color;
+
+uniform sampler2D canvas;
 in vec2 UV;
 const int neighbourMultiplier = 2;
 
@@ -16,13 +16,13 @@ void main() {
 
     // get neighbour colors
     vec4 neighbourColors[4];
-    neighbourColors[0] = texture(heightmapTexture, neighbourUVs[0]);
-    neighbourColors[1] = texture(heightmapTexture, neighbourUVs[1]);
-    neighbourColors[2] = texture(heightmapTexture, neighbourUVs[2]);
-    neighbourColors[3] = texture(heightmapTexture, neighbourUVs[3]);
+    neighbourColors[0] = texture(canvas, neighbourUVs[0]);
+    neighbourColors[1] = texture(canvas, neighbourUVs[1]);
+    neighbourColors[2] = texture(canvas, neighbourUVs[2]);
+    neighbourColors[3] = texture(canvas, neighbourUVs[3]);
 
     // get average color
-    vec4 averageColor = texture(heightmapTexture, UV);
+    vec4 averageColor = texture(canvas, UV);
     for (int i = 0; i < 4; i++)
     {
         averageColor += neighbourColors[i];
